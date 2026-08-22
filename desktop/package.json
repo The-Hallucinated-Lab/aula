@@ -1,0 +1,82 @@
+{
+  "name": "aula",
+  "productName": "Aula",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Aula \u2014 a constraint-driven university timetable planner for Windows",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite --mode web",
+    "typecheck": "tsc -b",
+    "lint": "oxlint",
+    "build": "tsc -b && vite build",
+    "build:web": "tsc -b && vite build --mode web",
+    "preview": "vite preview",
+    "verify": "esbuild scripts/harness.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/harness.mjs --log-level=warning && node node_modules/.tmp/harness.mjs",
+    "package": "npm run build && electron-builder --win --publish never",
+    "package:dir": "npm run build && electron-builder --win --dir --publish never",
+    "diagnose": "esbuild scripts/diagnose.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/diagnose.mjs --log-level=warning && node node_modules/.tmp/diagnose.mjs"
+  },
+  "dependencies": {
+    "react": "^19.2.7",
+    "react-dom": "^19.2.7",
+    "react-router-dom": "^7.18.1",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.2",
+    "@types/react": "^19.2.17",
+    "@types/react-dom": "^19.2.3",
+    "@vitejs/plugin-react": "^6.0.3",
+    "electron": "^43.4.0",
+    "electron-builder": "^26.15.3",
+    "esbuild": "^0.28.2",
+    "oxlint": "^1.71.0",
+    "typescript": "~6.0.2",
+    "vite": "^8.1.1",
+    "vite-plugin-electron": "^1.1.1"
+  },
+  "build": {
+    "appId": "in.aula.timetable",
+    "productName": "Aula",
+    "copyright": "Aula Timetable Studio",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Aula",
+      "artifactName": "Aula-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Aula-Portable-${version}-${arch}.${ext}"
+    }
+  }
+}
