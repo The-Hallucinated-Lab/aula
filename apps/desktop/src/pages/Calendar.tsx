@@ -445,6 +445,9 @@ function MonthGrid(props: {
               </span>
             ))}
             {m.days.map((date, i) => {
+              // A padding cell is defined by its position and has no other
+              // identity; the index is the correct key here.
+              // eslint-disable-next-line react/no-array-index-key
               if (!date) return <span key={`pad-${i}`} />
               const inTerm = date >= props.start && date <= props.end
               const day = weekdayOf(parseDate(date) as number)

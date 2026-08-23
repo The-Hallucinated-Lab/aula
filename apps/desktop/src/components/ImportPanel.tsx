@@ -154,8 +154,8 @@ export function ImportPanel({ kind, onClose }: { kind: ImportKind; onClose: () =
                 {staged.problems.length} thing{staged.problems.length === 1 ? '' : 's'} to know
               </div>
               <div className="import-problems">
-                {staged.problems.map((p, i) => (
-                  <div key={i} className="import-problem">
+                {staged.problems.map(p => (
+                  <div key={`${p.line}:${p.message}`} className="import-problem">
                     <span className="import-line mono">line {p.line}</span>
                     <span>{p.message}</span>
                   </div>

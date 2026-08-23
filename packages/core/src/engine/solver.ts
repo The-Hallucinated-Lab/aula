@@ -72,7 +72,7 @@ function activeRules(states: Record<string, ConstraintState>) {
     const impl = RULES[def.rule as RuleKey]
     if (!impl) continue
 
-    const params = { ...(def.args ?? {}), ...state.values }
+    const params = { ...def.args, ...state.values }
     const entry: ActiveRule = { def, state, params }
 
     if (def.hard && impl.check) hard.push(entry)
@@ -493,7 +493,7 @@ function runAudits(
     const impl = RULES[def.rule as RuleKey]
     if (!impl?.audit) continue
 
-    const params = { ...(def.args ?? {}), ...state.values }
+    const params = { ...def.args, ...state.values }
     for (const message of impl.audit(sessions, ctx, params)) {
       out.push({
         code: def.id,

@@ -36,6 +36,13 @@
 - [GAP-02] The solver is a constraint-guided greedy placer with least-slack ordering and a bounded candidate search. It guarantees every enabled hard constraint and minimises weighted soft cost, but it does not prove optimality. A CP-SAT backend would.
 - [GAP-03] Cohort gap minimisation is weaker than the other soft objectives; typical output leaves ~9 free slots per cohort per week.
 - [GAP-04] ~~No CSV/SIS import path.~~ **Closed 2026-08-23.** `src/data/importers.ts` reads staff, room and course CSVs into `EntityOverrides`, which is the same seam an edit uses (D-22), so imported records inherit the whole validation and editing path. Every refused row is reported with its line and a reason. A live SIS connection is still out of scope.
+- [GAP-08] `DeptConfig` has no stable identifier — a department is known by its
+  `code`, which is editable in the hierarchy step. The department table
+  therefore keys its rows by index, which is the least-bad option: keying by
+  `code` would remount the row on every keystroke and take the caret with it.
+  Giving the type an `id` is the real fix and reaches normalisation, the
+  generator, the record types that reference departments by code, and
+  saved-project migration.
 - [GAP-05] Exam scheduling is out of scope for this build — the app schedules the weekly teaching timetable.
 
 ## 5. IMMUTABLE EXECUTION TIMELINE & BUG LOG

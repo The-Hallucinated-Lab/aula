@@ -121,13 +121,17 @@ export function Overview() {
         {(unplacedTotal > 0 || hardViolations.length > 0) && (
           <Section title="What did not fit" hint="Each row names the constraint to relax">
             <div className="stack" style={{ gap: 10 }}>
-              {hardViolations.slice(0, 6).map((v, i) => (
-                <Callout key={i} tone="danger" title={`${v.code} — hard violation`}>
+              {hardViolations.slice(0, 6).map(v => (
+                <Callout
+                  key={`${v.code}:${v.message}`}
+                  tone="danger"
+                  title={`${v.code} — hard violation`}
+                >
                   {v.message}
                 </Callout>
               ))}
-              {report.unplaced.slice(0, 10).map((u, i) => (
-                <div key={i} className="card card-pad">
+              {report.unplaced.slice(0, 10).map(u => (
+                <div key={`${u.cohortLabel}:${u.courseLabel}`} className="card card-pad">
                   <div className="spread" style={{ alignItems: 'flex-start', gap: 14 }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontWeight: 700, fontSize: 14 }}>{u.courseLabel}</div>
@@ -246,7 +250,7 @@ export function Overview() {
               <Section title="Soft findings" hint="Advisory checks that fired after the solve">
                 <div className="card" style={{ overflow: 'hidden' }}>
                   {softViolations.slice(0, 12).map((v, i) => (
-                    <div key={i}>
+                    <div key={`${v.code}:${v.message}`}>
                       {i > 0 && <div className="divider" style={{ margin: 0 }} />}
                       <div className="row" style={{ padding: '11px 20px', gap: 12 }}>
                         <span className="chip chip-warn mono">{v.code}</span>

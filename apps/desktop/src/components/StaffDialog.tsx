@@ -31,6 +31,16 @@ import { loadForRank } from '@aula/core/data/config'
  * contract and availability allow, and where they are based. Every field
  * reaches the solver; the hint under each one says how.
  */
+/**
+ * Add or remove a value from a list, immutably.
+ *
+ * Declared at module scope rather than inside the component: it closes over
+ * nothing, so re-creating it on every render only gives React a new identity to
+ * compare.
+ */
+const toggle = <T,>(list: T[], value: T): T[] =>
+  list.includes(value) ? list.filter(x => x !== value) : [...list, value]
+
 export function StaffDialog(props: {
   /** the record being edited, or a blank one for a new member of staff */
   initial: StaffRecord
@@ -86,9 +96,6 @@ export function StaffDialog(props: {
       ? 'Tick at least one course, or the scheduler can never give this person a class.'
       : ''
   const error = nameError || capError || qualError
-
-  const toggle = <T,>(list: T[], value: T): T[] =>
-    list.includes(value) ? list.filter(x => x !== value) : [...list, value]
 
   const save = () => {
     setTouched(true)

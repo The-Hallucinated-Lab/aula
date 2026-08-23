@@ -103,18 +103,25 @@ export async function openText(
     const input = document.createElement('input')
     input.type = 'file'
     input.accept = filters.flatMap(f => f.extensions.map(e => `.${e}`)).join(',')
-    input.onchange = () => {
+    // `addEventListener`, not `on*`: assignment silently replaces whatever was
+    // there, which is the kind of bug that only appears once a second handler
+    // is added years later.
+    input.addEventListener('change', () => {
       const file = input.files?.[0]
       if (!file) {
         resolve({ ok: false, canceled: true })
         return
       }
       const reader = new FileReader()
-      reader.onload = () => resolve({ ok: true, data: String(reader.result), path: file.name })
-      reader.onerror = () => resolve({ ok: false, error: 'Could not read that file' })
+      reader.addEventListener('load', () =>
+        resolve({ ok: true, data: String(reader.result), path: file.name }),
+      )
+      reader.addEventListener('error', () =>
+        resolve({ ok: false, error: 'Could not read that file' }),
+      )
       reader.readAsText(file)
-    }
-    input.oncancel = () => resolve({ ok: false, canceled: true })
+    })
+    input.addEventListener('cancel', () => resolve({ ok: false, canceled: true }))
     input.click()
   })
 }
