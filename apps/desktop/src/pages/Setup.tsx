@@ -35,6 +35,7 @@ import {
 import { FEATURE_PRESETS, ROOM_SPECIALISATIONS, specialisationById } from '@aula/core/data/records'
 import { prettyRange } from '@aula/core/data/academicCalendar'
 import { HELP } from '../content/help'
+import { applyPatch, patchAt, type Clearable } from '../lib/records'
 
 type StepId =
   | 'identity'
@@ -84,6 +85,18 @@ const STEPS_FOR: Record<SetupMode, { id: StepId; name: string; blurb: string }[]
   term: TERM_STEPS,
 }
 
+/**
+ * Where each wizard opens.
+ *
+ * Named rather than read as `STEPS[0].id` so the entry point is a value that
+ * exists by declaration; the step lists are ordinary arrays and the compiler
+ * cannot know they are non-empty.
+ */
+const FIRST_STEP: Record<SetupMode, StepId> = {
+  institution: 'identity',
+  term: 'profiles',
+}
+
 let uid = 1
 const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${uid++}`
 
@@ -110,7 +123,7 @@ function SetupWizard({ mode }: { mode: SetupMode }) {
     solving,
   } = useApp()
   const STEPS = STEPS_FOR[mode]
-  const [step, setStep] = useState<StepId>(STEPS[0].id)
+  const [step, setStep] = useState<StepId>(FIRST_STEP[mode])
   const [confirming, setConfirming] = useState(false)
   /* Constant settings are locked on arrival. A timetable manager has no reason
      to be in here, and the review was clear that edits at this level ripple
@@ -291,13 +304,16 @@ function SetupWizard({ mode }: { mode: SetupMode }) {
               <button
                 className="btn btn-ghost"
                 disabled={index === 0}
-                onClick={() => setStep(STEPS[Math.max(0, index - 1)].id)}
+                onClick={() => setStep(STEPS[Math.max(0, index - 1)]?.id ?? FIRST_STEP[mode])}
               >
                 ← Back
               </button>
               <div className="row" style={{ gap: 10 }}>
                 {index < STEPS.length - 1 ? (
-                  <button className="btn btn-primary" onClick={() => setStep(STEPS[index + 1].id)}>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => setStep(STEPS[index + 1]?.id ?? step)}
+                  >
                     Continue →
                   </button>
                 ) : mode === 'institution' ? (
@@ -723,14 +739,12 @@ function StepGrid({ config, patch }: StepProps) {
   const cal = config.calendar
   const set = (p: Partial<typeof cal>) => patch({ calendar: { ...cal, ...p } })
   const plan = useMemo(() => slotPlan(cal), [cal])
-  const perDay = plan.starts.length
-  const shortFinal = perDay > 0 && plan.durations[perDay - 1] !== cal.slotMinutes
+  const perDay = plan.slots.length
+  const shortFinal =
+    plan.slots.at(-1)?.duration !== undefined && plan.slots.at(-1)?.duration !== cal.slotMinutes
 
-  const setShift = (i: number, s: Partial<ShiftConfig>) => {
-    const next = [...cal.shifts]
-    next[i] = { ...next[i], ...s }
-    set({ shifts: next })
-  }
+  const setShift = (i: number, s: Partial<ShiftConfig>) =>
+    set({ shifts: patchAt(cal.shifts, i, s) })
 
   return (
     <Section title="Teaching day" hint="The grid every session must land on">
@@ -749,7 +763,7 @@ function StepGrid({ config, patch }: StepProps) {
                     set({
                       workingDays: on
                         ? cal.workingDays.filter(x => x !== i)
-                        : [...cal.workingDays, i].sort((a, b) => a - b),
+                        : [...cal.workingDays, i].toSorted((a, b) => a - b),
                     })
                   }
                 >
@@ -926,12 +940,12 @@ function StepGrid({ config, patch }: StepProps) {
           )}
         </div>
         <div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
-          {plan.starts.slice(0, 16).map((m, i) => (
+          {plan.slots.slice(0, 16).map(slot => (
             <span
-              key={m}
-              className={`chip mono ${plan.durations[i] !== cal.slotMinutes ? 'chip-warn' : 'chip-soft'}`}
+              key={slot.start}
+              className={`chip mono ${slot.duration === cal.slotMinutes ? 'chip-soft' : 'chip-warn'}`}
             >
-              {minutesToLabel(m)}&ndash;{minutesToLabel(m + plan.durations[i])}
+              {minutesToLabel(slot.start)}&ndash;{minutesToLabel(slot.end)}
             </span>
           ))}
           {perDay > 16 && <span className="small muted">+{perDay - 16} more</span>}
@@ -1035,7 +1049,7 @@ function StepProfiles({ config, patch }: StepProps) {
             </tr>
           </thead>
           <tbody>
-            {live.map((prof, i) => (
+            {live.map(prof => (
               <tr key={prof.id}>
                 <td>
                   <TextInput
@@ -1043,7 +1057,7 @@ function StepProfiles({ config, patch }: StepProps) {
                     ariaLabel="Profile name"
                     onChange={v => {
                       const next = [...config.profiles]
-                      next[config.profiles.indexOf(live[i])] = { ...prof, name: v }
+                      next[config.profiles.indexOf(prof)] = { ...prof, name: v }
                       setProfiles(next)
                     }}
                   />
@@ -1055,7 +1069,7 @@ function StepProfiles({ config, patch }: StepProps) {
                     ariaLabel="Intake"
                     onChange={v => {
                       const next = [...config.profiles]
-                      next[config.profiles.indexOf(live[i])] = { ...prof, batchLabel: v }
+                      next[config.profiles.indexOf(prof)] = { ...prof, batchLabel: v }
                       setProfiles(next)
                     }}
                   />
@@ -1084,7 +1098,7 @@ function StepProfiles({ config, patch }: StepProps) {
                     }
                     onClick={() => {
                       const next = [...config.profiles]
-                      next[config.profiles.indexOf(live[i])] = { ...prof, archived: true }
+                      next[config.profiles.indexOf(prof)] = { ...prof, archived: true }
                       setProfiles(next)
                     }}
                   >
@@ -1190,11 +1204,8 @@ function StepProfiles({ config, patch }: StepProps) {
 }
 
 function StepPrograms({ config, patch }: StepProps) {
-  const update = (i: number, p: Partial<ProgramConfig>) => {
-    const next = [...config.programs]
-    next[i] = { ...next[i], ...p }
-    patch({ programs: next })
-  }
+  const update = (i: number, p: Partial<ProgramConfig>) =>
+    patch({ programs: patchAt(config.programs, i, p) })
 
   return (
     <Section
@@ -1388,9 +1399,9 @@ function StepRooms({ config, patch }: StepProps) {
   const [openFeatures, setOpenFeatures] = useState<string | null>(null)
 
   const updateBuilding = (i: number, p: Partial<BuildingConfig>) => {
-    const next = [...config.buildings]
-    const building = { ...next[i], ...p }
-    next[i] = building
+    const next = patchAt(config.buildings, i, p)
+    const building = next[i]
+    if (!building) return
 
     /* Storeys can be reduced after rooms were laid out on the upper ones. Those
        rooms still exist, so they come down to the new top floor rather than
@@ -1404,8 +1415,8 @@ function StepRooms({ config, patch }: StepProps) {
     patch({ buildings: next, roomGroups: groups })
   }
 
-  const updateGroup = (id: string, p: Partial<RoomGroupConfig>) => {
-    patch({ roomGroups: config.roomGroups.map(g => (g.id === id ? { ...g, ...p } : g)) })
+  const updateGroup = (id: string, p: Clearable<RoomGroupConfig>) => {
+    patch({ roomGroups: config.roomGroups.map(g => (g.id === id ? applyPatch(g, p) : g)) })
   }
 
   const removeGroup = (id: string) => {
@@ -1415,6 +1426,7 @@ function StepRooms({ config, patch }: StepProps) {
 
   const addGroup = (buildingId: string, floor: number) => {
     const preset = ROOM_SPECIALISATIONS[0]
+    if (!preset) return
     patch({
       roomGroups: [
         ...config.roomGroups,

@@ -212,14 +212,17 @@ function build(): ConstraintDef[] {
         domainId,
         topic: opts?.topic ?? defaultTopic(domainId),
         hard,
-        rule: opts?.rule,
-        args: opts?.args,
+        // `rule` and `args` are optional. An advisory row has no rule at all,
+        // which is not the same as having one set to undefined — `isImplemented`
+        // and the export both read the key's presence.
+        ...(opts?.rule === undefined ? {} : { rule: opts.rule }),
+        ...(opts?.args === undefined ? {} : { args: opts.args }),
         params: opts?.params ?? [],
       })
     }
   }
 
-  out.sort((a, b) => a.n - b.n)
+  out.toSorted((a, b) => a.n - b.n)
   return out
 }
 

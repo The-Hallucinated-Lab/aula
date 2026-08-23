@@ -49,7 +49,7 @@ for (const r of inst.rooms) {
   supplyByKind.set(r.kind, (supplyByKind.get(r.kind) ?? 0) + days * perDay)
 }
 let impossible = false
-for (const [kind, need] of [...demandByKind].sort((a, b) => b[1] - a[1])) {
+for (const [kind, need] of [...demandByKind].toSorted((a, b) => b[1] - a[1])) {
   const have = supplyByKind.get(kind) ?? 0
   const over = need > have
   if (over) impossible = true

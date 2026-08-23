@@ -46,13 +46,22 @@ import {
 import { solveInWorker } from './adapters/solver/client'
 import { checkMove as engineCheckMove, type MoveCheck } from '@aula/core/engine/solver'
 
+/**
+ * The scenario used when a saved project names one that no longer exists.
+ *
+ * Declared separately from the list so it is a value the compiler can see is
+ * always there — `SCENARIOS[0]` is only an element, and the list is exported
+ * and therefore mutable from outside.
+ */
+const DEFAULT_SCENARIO: ScenarioProfile = {
+  id: 'balanced',
+  name: 'Balanced week',
+  tagline: 'Even spread across days, fair staff load',
+  weights: { gaps: 3, utilization: 2, loadBalance: 5, welfare: 3 },
+}
+
 export const SCENARIOS: ScenarioProfile[] = [
-  {
-    id: 'balanced',
-    name: 'Balanced week',
-    tagline: 'Even spread across days, fair staff load',
-    weights: { gaps: 3, utilization: 2, loadBalance: 5, welfare: 3 },
-  },
+  DEFAULT_SCENARIO,
   {
     id: 'utilization',
     name: 'Peak utilisation',
@@ -88,11 +97,12 @@ function mergeStates(saved?: Record<string, ConstraintState>): Record<string, Co
   if (!saved) return base
   for (const c of CATALOGUE) {
     const s = saved[c.id]
-    if (!s) continue
+    const current = base[c.id]
+    if (!s || !current) continue
     base[c.id] = {
-      enabled: typeof s.enabled === 'boolean' ? s.enabled : base[c.id].enabled,
-      weight: typeof s.weight === 'number' ? s.weight : base[c.id].weight,
-      values: { ...base[c.id].values, ...(s.values ?? {}) },
+      enabled: typeof s.enabled === 'boolean' ? s.enabled : current.enabled,
+      weight: typeof s.weight === 'number' ? s.weight : current.weight,
+      values: { ...current.values, ...(s.values ?? {}) },
     }
   }
   return base
@@ -402,12 +412,13 @@ export const useApp = create<AppState>((set, get) => ({
 
   async regenerate(scenario) {
     const scenarioId = scenario ?? get().activeScenario
-    const profile = SCENARIOS.find(s => s.id === scenarioId) ?? SCENARIOS[0]
+    const profile = SCENARIOS.find(s => s.id === scenarioId) ?? DEFAULT_SCENARIO
     const { config, states } = get()
 
-    if (get().summary.errors.length > 0) {
-      set({ lastError: get().summary.errors[0] })
-      get().log('reject', `Solve blocked — ${get().summary.errors[0]}`)
+    const blocking = get().summary.errors[0]
+    if (blocking !== undefined) {
+      set({ lastError: blocking })
+      get().log('reject', `Solve blocked — ${blocking}`)
       return
     }
 
@@ -493,7 +504,9 @@ export const useApp = create<AppState>((set, get) => ({
       const first = result.rejections[0]
       get().log(
         'reject',
-        `Blocked: ${course?.code} → ${DAY_NAMES[day]} — ${first.code} ${first.message}`,
+        first
+          ? `Blocked: ${course?.code} → ${DAY_NAMES[day]} — ${first.code} ${first.message}`
+          : `Blocked: ${course?.code} → ${DAY_NAMES[day]}`,
       )
       return result
     }
@@ -529,8 +542,8 @@ export const useApp = create<AppState>((set, get) => ({
         sessions.filter(x => x.day === day && overlapsSlots(x, s)).map(x => x.staffId),
       )
       const dayHours = new Map<string, number>()
-      for (const x of sessions.filter(x => x.day === day)) {
-        dayHours.set(x.staffId, (dayHours.get(x.staffId) ?? 0) + x.length)
+      for (const onDay of sessions.filter(candidate => candidate.day === day)) {
+        dayHours.set(onDay.staffId, (dayHours.get(onDay.staffId) ?? 0) + onDay.length)
       }
 
       // `canTeach` covers sabbatical, expertise and the group-size ceiling, so a
@@ -548,7 +561,7 @@ export const useApp = create<AppState>((set, get) => ({
             (dayHours.get(f.id) ?? 0) + s.length <= f.maxPerDay &&
             (metrics.staffLoad.get(f.id) ?? 0) + s.length <= f.maxPerWeek,
         )
-        .sort((a, b) => {
+        .toSorted((a, b) => {
           const deptA = a.deptId === absent.deptId ? 0 : 1
           const deptB = b.deptId === absent.deptId ? 0 : 1
           if (deptA !== deptB) return deptA - deptB
@@ -912,7 +925,7 @@ function withCourses(state: AppState, fn: (list: CourseRecord[]) => CourseRecord
 function withEvents(state: AppState, fn: (list: CalendarEvent[]) => CalendarEvent[]): SetupConfig {
   const events = fn(state.config.calendar.events ?? [])
     .slice()
-    .sort((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name))
+    .toSorted((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name))
   return { ...state.config, calendar: { ...state.config.calendar, events } }
 }
 

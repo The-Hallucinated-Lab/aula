@@ -185,7 +185,7 @@ export function Overview() {
                   {grid.days.map((day, di) => (
                     <HeatRow
                       key={day}
-                      label={DAY_SHORT[day]}
+                      label={DAY_SHORT[day] ?? ''}
                       row={metrics.heatmap[di] ?? []}
                       peak={Math.max(1, ...metrics.heatmap.flat())}
                       labels={grid.labels}
@@ -277,7 +277,10 @@ export function Overview() {
                         </span>
                         <span className="mono tnum muted">{load} h</span>
                       </div>
-                      <Meter value={load / peak} tone={SERIES[d.colorIndex % SERIES.length]} />
+                      <Meter
+                        value={load / peak}
+                        tone={SERIES[d.colorIndex % SERIES.length] ?? ''}
+                      />
                     </div>
                   )
                 })}

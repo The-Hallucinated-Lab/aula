@@ -98,7 +98,7 @@ export function buildBriefing(input: BriefingInput): string {
       hours: input.staffLoad.get(f.id) ?? 0,
       cap: f.maxPerWeek,
     }))
-    .sort((a, b) => b.hours - a.hours)
+    .toSorted((a, b) => b.hours - a.hours)
   lines.push('BUSIEST STAFF')
   for (const l of loads.slice(0, 8))
     lines.push(`  ${l.name} (${l.rank}): ${l.hours} of ${l.cap} hours`)
@@ -112,7 +112,7 @@ export function buildBriefing(input: BriefingInput): string {
       .map(day => {
         const onDay = mine
           .filter(s => s.day === day)
-          .sort((a, b) => a.slot - b.slot)
+          .toSorted((a, b) => a.slot - b.slot)
           .map(s => {
             const c = inst.courses.find(x => x.id === s.courseId)
             const r = inst.rooms.find(x => x.id === s.roomId)

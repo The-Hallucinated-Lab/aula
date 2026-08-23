@@ -41,6 +41,13 @@ import {
  * Time grid
  * ------------------------------------------------------------------ */
 
+/** The positions of the entries a predicate accepts, in order. */
+function indicesWhere<T>(xs: readonly T[], keep: (value: T) => boolean): number[] {
+  const out: number[] = []
+  for (const [index, value] of xs.entries()) if (keep(value)) out.push(index)
+  return out
+}
+
 export function buildGrid(cfg: SetupConfig): TimeGrid {
   const cal = cfg.calendar
   const count = Math.max(0, slotsPerDay(cal))
@@ -50,39 +57,29 @@ export function buildGrid(cfg: SetupConfig): TimeGrid {
      tautology: nothing can be offered on a day the grid does not contain. */
   const lost = lostWeekdays(cal, cal.workingDays, count)
 
-  const { starts, durations } = slotPlan(cal)
-  const labels = starts.map(minutesToLabel)
-  const endOf = (i: number) => starts[i] + durations[i]
+  const { slots } = slotPlan(cal)
+  const labels = slots.map(s => minutesToLabel(s.start))
 
   const lunchFrom = labelToMinutes(cal.lunchStart)
   const lunchTo = lunchFrom + cal.lunchMinutes
-  const lunchSlots = starts
-    .map((s, i) => ({ s, i }))
-    .filter(({ s, i }) => s < lunchTo && endOf(i) > lunchFrom)
-    .map(({ i }) => i)
+  const lunchSlots = indicesWhere(slots, s => s.start < lunchTo && s.end > lunchFrom)
 
   const eveningMins = labelToMinutes(cal.eveningStart)
-  let eveningFrom = count
-  for (let i = 0; i < count; i++)
-    if (starts[i] >= eveningMins) {
-      eveningFrom = i
-      break
-    }
+  const firstEvening = slots.findIndex(s => s.start >= eveningMins)
+  const eveningFrom = firstEvening >= 0 ? firstEvening : count
 
   const earlyMins = labelToMinutes(cal.earlyMorningUntil)
-  let earlyUntil = 0
-  for (let i = 0; i < count; i++) if (starts[i] < earlyMins) earlyUntil = i + 1
+  const earlyUntil = slots.filter(s => s.start < earlyMins).length
 
-  const primeSlots = starts
-    .map((s, i) => ({ s, i }))
-    .filter(({ s, i }) => s >= 10 * 60 && endOf(i) <= 14 * 60)
-    .map(({ i }) => i)
+  const primeSlots = indicesWhere(slots, s => s.start >= 10 * 60 && s.end <= 14 * 60)
 
   /* Never return an empty week: a calendar that cancels everything is a
      configuration error `summarise()` already names, and a grid with no days
      would make every downstream screen divide by zero instead. */
   const surviving = cal.workingDays.filter(d => !lost.includes(d))
-  const days = (surviving.length > 0 ? surviving : cal.workingDays).slice().sort((a, b) => a - b)
+  const days = (surviving.length > 0 ? surviving : cal.workingDays)
+    .slice()
+    .toSorted((a, b) => a - b)
 
   /* Shift windows, resolved from clock times to slot indices.
      A configuration with no shifts is not "shifts off" — it is one shift that
@@ -92,15 +89,12 @@ export function buildGrid(cfg: SetupConfig): TimeGrid {
   for (const s of cal.shifts) {
     const from = labelToMinutes(s.start)
     const to = labelToMinutes(s.end)
-    let fromSlot = -1
-    let toSlot = -1
-    for (let i = 0; i < count; i++) {
-      if (starts[i] >= from && endOf(i) <= to) {
-        if (fromSlot < 0) fromSlot = i
-        toSlot = i
-      }
+    const inside = indicesWhere(slots, slot => slot.start >= from && slot.end <= to)
+    const fromSlot = inside[0]
+    const toSlot = inside.at(-1)
+    if (fromSlot !== undefined && toSlot !== undefined) {
+      shifts.push({ id: s.id, name: s.name, fromSlot, toSlot })
     }
-    if (fromSlot >= 0) shifts.push({ id: s.id, name: s.name, fromSlot, toSlot })
   }
   if (shifts.length === 0 && count > 0) {
     shifts.push({ id: 'all-day', name: 'Full day', fromSlot: 0, toSlot: count - 1 })
@@ -110,15 +104,18 @@ export function buildGrid(cfg: SetupConfig): TimeGrid {
     days,
     slots: count,
     labels,
-    starts,
-    durations,
+    starts: slots.map(s => s.start),
+    durations: slots.map(s => s.duration),
     shifts,
     slotMinutes: cal.slotMinutes,
     passingMinutes: cal.passingMinutes,
     lunchSlots,
     eveningFrom,
     earlyUntil,
-    primeSlots: primeSlots.length ? primeSlots : starts.map((_, i) => i).slice(1, 4),
+    /* Every day needs a "prime" band for the rules that prefer it. If the
+       configured day is too short to contain 10:00-14:00, fall back to the
+       second, third and fourth periods rather than leaving it empty. */
+    primeSlots: primeSlots.length > 0 ? primeSlots : slots.map((_, i) => i).slice(1, 4),
   }
 }
 
@@ -333,17 +330,21 @@ const subjectName = (dept: string, year: number, i: number): string => {
   return `${dept} ${GENERIC[i % GENERIC.length]} ${year}`
 }
 
-const labName = (dept: string, year: number, i: number): string => {
-  const bank = LAB_NAMES[dept]
-  if (bank) return bank[(year - 1 + i) % bank.length]
-  return `${dept} Laboratory ${year}.${i + 1}`
-}
+/**
+ * Pick from a name bank, wrapping.
+ *
+ * The length test is not ceremony: `x % 0` is `NaN`, so an empty bank used to
+ * index with `NaN` and hand back `undefined` — which then became the literal
+ * course name "undefined" on screen and in the CSV export.
+ */
+const fromBank = (bank: string[] | undefined, offset: number): string | null =>
+  bank && bank.length > 0 ? (bank[offset % bank.length] ?? null) : null
 
-const electiveName = (dept: string, year: number, i: number): string => {
-  const bank = ELECTIVES[dept]
-  if (bank) return bank[(year - 1 + i) % bank.length]
-  return `${dept} Elective ${year}.${i + 1}`
-}
+const labName = (dept: string, year: number, i: number): string =>
+  fromBank(LAB_NAMES[dept], year - 1 + i) ?? `${dept} Laboratory ${year}.${i + 1}`
+
+const electiveName = (dept: string, year: number, i: number): string =>
+  fromBank(ELECTIVES[dept], year - 1 + i) ?? `${dept} Elective ${year}.${i + 1}`
 
 const FIRST = [
   'Ananya',
@@ -597,6 +598,18 @@ export function generateInstitution(cfg: SetupConfig): Institution {
       }
 
       for (let i = 0; i < Math.max(0, policy.electiveCourses); i++) {
+        /* An elective draws a fraction of a section, not all of it. Left at
+           the section size it demands a full-size room and competes with core
+           lectures for the few of those there are. Clamped to the section size
+           so a policy figure can never invent students.
+
+           Omitted rather than set to `undefined` when the policy does not give
+           a figure: `enrolment` is optional, and an absent key and a present
+           undefined one are different things to `in` and to JSON. */
+        const enrolment =
+          policy.electiveEnrolment > 0
+            ? Math.min(policy.electiveEnrolment, Math.max(1, p.studentsPerSection))
+            : undefined
         courses.push({
           id: `c-${p.id}-${year}-el${i}`,
           code: `${p.dept}${year}E${i + 1}`,
@@ -611,14 +624,7 @@ export function generateInstitution(cfg: SetupConfig): Institution {
           roomKind: seminarKind,
           requires: [],
           after: [],
-          /* An elective draws a fraction of a section, not all of it. Left at
-             the section size it demands a full-size room and competes with
-             core lectures for the few of those there are. Clamped to the
-             section size so a policy figure can never invent students. */
-          enrolment:
-            policy.electiveEnrolment > 0
-              ? Math.min(policy.electiveEnrolment, Math.max(1, p.studentsPerSection))
-              : undefined,
+          ...(enrolment === undefined ? {} : { enrolment }),
           electiveGroup: `EG-${p.dept}-${year}`,
           suspended: false,
           eveningOnly: p.mode === 'evening',
@@ -775,10 +781,16 @@ function generateStaff(
     'Teaching Assistant': 0,
   }
 
-  for (let i = 0; i < total; i++) {
-    const rank = ranks[i]
-    const deptId = deptSlots[i]
+  /* `ranks` and `deptSlots` are each exactly `total` long by construction —
+     `ranks.length = total` above, `slots.length = total` at the end of
+     `dealByDemand`. Zipping them once states that pairing in one place instead
+     of leaving each index access to re-establish it. */
+  const assignments = ranks.map((rank, index) => ({
+    rank,
+    deptId: deptSlots[index] ?? FALLBACK_DEPT_ID,
+  }))
 
+  for (const [i, { rank, deptId }] of assignments.entries()) {
     let name = ''
     for (let tries = 0; tries < 200; tries++) {
       const candidate = `${rank === 'Teaching Assistant' ? '' : 'Dr. '}${FIRST[Math.floor(rng() * FIRST.length)]} ${LAST[Math.floor(rng() * LAST.length)]}`
@@ -843,22 +855,25 @@ function generateStaff(
     else byDept.set(f.deptId, [f])
   }
 
-  for (const [deptId, staff] of byDept) {
+  for (const [deptId, deptStaff] of byDept) {
     const deptCourses = courses.filter(c => c.deptId === deptId)
-    if (staff.length === 0 || deptCourses.length === 0) continue
+    if (deptStaff.length === 0 || deptCourses.length === 0) continue
 
     // round-robin guarantees coverage, twice over so absences are survivable
     deptCourses.forEach((course, idx) => {
-      const primary = staff[idx % staff.length]
+      const primary = deptStaff[idx % deptStaff.length]
       const backup =
-        staff[(idx + 1 + Math.floor(rng() * Math.max(1, staff.length - 1))) % staff.length]
+        deptStaff[
+          (idx + 1 + Math.floor(rng() * Math.max(1, deptStaff.length - 1))) % deptStaff.length
+        ]
+      if (!primary || !backup) return
       if (!primary.subjects.includes(course.id)) primary.subjects.push(course.id)
       if (backup !== primary && !backup.subjects.includes(course.id))
         backup.subjects.push(course.id)
     })
 
     // then broaden each person's portfolio up to the configured range
-    for (const f of staff) {
+    for (const f of deptStaff) {
       const want =
         cfg.staff.qualificationsMin +
         Math.floor(
@@ -896,7 +911,9 @@ function generateStaff(
   for (const f of shuffled(rng, staff)) {
     if (research >= researchTarget) break
     if (f.onSabbatical || days.length < 3) continue
-    f.blockedDays = [days[Math.floor(rng() * days.length)]]
+    const day = days[Math.floor(rng() * days.length)]
+    if (day === undefined) continue
+    f.blockedDays = [day]
     research++
   }
 
@@ -930,6 +947,9 @@ function generateStaff(
  * rank-ordered caller list spreads every rank evenly across departments.
  * Deterministic and free of randomness.
  */
+/** Where a staff member lands when the institution has no department to put them in. */
+const FALLBACK_DEPT_ID = 'dept-GEN'
+
 function dealByDemand(
   departments: Department[],
   weight: Map<string, number>,
@@ -937,7 +957,7 @@ function dealByDemand(
   avgCap: number,
 ): string[] {
   if (departments.length === 0 || total <= 0) {
-    return Array.from({ length: Math.max(0, total) }, () => 'dept-GEN')
+    return Array.from({ length: Math.max(0, total) }, () => FALLBACK_DEPT_ID)
   }
 
   const teaching = departments.filter(d => (weight.get(d.id) ?? 0) > 0)
@@ -953,7 +973,7 @@ function dealByDemand(
   // Genuinely short-staffed: scale everyone back proportionally and let
   // summarise() tell the user, rather than starving whoever sorts last.
   while (assigned > total) {
-    const biggest = [...counts.entries()].sort((a, b) => b[1] - a[1])[0]
+    const biggest = [...counts.entries()].toSorted((a, b) => b[1] - a[1])[0]
     if (!biggest || biggest[1] <= 1) break
     counts.set(biggest[0], biggest[1] - 1)
     assigned--
@@ -975,10 +995,11 @@ function dealByDemand(
     }
     const byRemainder = shares
       .map(sh => ({ id: sh.id, rem: sh.want - Math.floor(sh.want) }))
-      .sort((a, b) => b.rem - a.rem)
+      .toSorted((a, b) => b.rem - a.rem)
     for (let k = 0; assigned < total && byRemainder.length > 0; k++) {
-      const id = byRemainder[k % byRemainder.length].id
-      counts.set(id, (counts.get(id) ?? 0) + 1)
+      const next = byRemainder[k % byRemainder.length]
+      if (!next) break
+      counts.set(next.id, (counts.get(next.id) ?? 0) + 1)
       assigned++
     }
   }
@@ -988,17 +1009,18 @@ function dealByDemand(
   let cursor = 0
   while (slots.length < total && order.length > 0) {
     let looked = 0
-    while ((counts.get(order[cursor % order.length]) ?? 0) === 0 && looked <= order.length) {
+    while ((counts.get(order[cursor % order.length] ?? '') ?? 0) === 0 && looked <= order.length) {
       cursor++
       looked++
     }
     if (looked > order.length) break
     const id = order[cursor % order.length]
+    if (id === undefined) break
     counts.set(id, (counts.get(id) ?? 0) - 1)
     slots.push(id)
     cursor++
   }
-  while (slots.length < total) slots.push(pool[0]?.id ?? 'dept-GEN')
+  while (slots.length < total) slots.push(pool[0]?.id ?? FALLBACK_DEPT_ID)
   slots.length = total
   return slots
 }
@@ -1062,8 +1084,11 @@ const FEATURE_SET = new Set<string>([
 const isFeature = (s: string): s is RoomFeature => FEATURE_SET.has(s)
 
 function abbreviate(name: string): string {
-  const words = name.split(/\s+/).filter(Boolean)
-  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase()
+  const initials = name
+    .split(/\s+/)
+    .filter(word => word !== '')
+    .map(word => word[0] ?? '')
+  if (initials.length >= 2) return `${initials[0]}${initials[1]}`.toUpperCase()
   return (name.slice(0, 2) || 'BL').toUpperCase()
 }
 
@@ -1198,7 +1223,9 @@ function coursesFromRecords(
     eveningOnly: false,
     heavyLoad: false,
     daylightOnly: false,
-    electiveGroup: c.kind === 'Elective' ? `EG-${c.dept}-${c.year}` : undefined,
+    // Spread in rather than assigned undefined: `electiveGroup` is optional and
+    // a non-elective must not carry the key at all.
+    ...(c.kind === 'Elective' ? { electiveGroup: `EG-${c.dept}-${c.year}` } : {}),
   }))
 }
 
@@ -1290,8 +1317,8 @@ function staffFromRecords(
         prefersBackToBack: false,
         needsPrepGap: false,
         needsAccessibleRoom: f.needsAccessibleRoom,
-        preferredRoomKind: f.preferredRoomKind,
-        homeBuildingId: f.homeBuildingId,
+        ...(f.preferredRoomKind === undefined ? {} : { preferredRoomKind: f.preferredRoomKind }),
+        ...(f.homeBuildingId === undefined ? {} : { homeBuildingId: f.homeBuildingId }),
         isNew: false,
         newPreparations: 0,
         seniority: seniorityOf[f.rank] ?? 2,

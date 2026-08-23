@@ -183,7 +183,7 @@ function StaffTab() {
 
       {institution.departments.map(dept => {
         const rows = visible.filter(r => r.dept === dept.code)
-        const color = SERIES[dept.colorIndex % SERIES.length]
+        const color = SERIES[dept.colorIndex % SERIES.length] ?? ''
         if (rows.length === 0 && q) return null
 
         return (
@@ -316,7 +316,7 @@ function facilityLabel(rec: RoomRecord): string | undefined {
     .filter(
       sp => sp.kind === rec.kind && sp.features.length > 0 && sp.features.every(f => owned.has(f)),
     )
-    .sort((a, b) => b.features.length - a.features.length)[0]?.label
+    .toSorted((a, b) => b.features.length - a.features.length)[0]?.label
 }
 
 function RoomsTab() {
@@ -338,7 +338,7 @@ function RoomsTab() {
 
       {config.buildings.map(building => {
         const rows = records.filter(r => r.buildingId === building.id)
-        const floors = [...new Set(rows.map(r => r.floor))].sort((a, b) => a - b)
+        const floors = [...new Set(rows.map(r => r.floor))].toSorted((a, b) => a - b)
 
         return (
           <Section
@@ -447,7 +447,7 @@ function RoomEditor(props: {
         sp =>
           sp.kind === rec.kind && sp.features.length > 0 && sp.features.every(f => owned.has(f)),
       )
-      .sort((a, b) => b.features.length - a.features.length)[0]?.id
+      .toSorted((a, b) => b.features.length - a.features.length)[0]?.id
   }, [rec.features, rec.kind])
 
   const toggleSlot = (day: number, slot: number) => {
@@ -587,7 +587,7 @@ function RoomEditor(props: {
                 set({
                   closedDays: closed
                     ? rec.closedDays.filter(x => x !== d)
-                    : [...rec.closedDays, d].sort((a, b) => a - b),
+                    : [...rec.closedDays, d].toSorted((a, b) => a - b),
                 })
               }
             >

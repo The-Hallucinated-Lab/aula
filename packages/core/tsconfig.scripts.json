@@ -2,7 +2,21 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2023"],
-    "types": ["node"]
+    "types": ["node"],
+
+    /* Deliberate exception, scoped to the verification harness.
+     *
+     * `noUncheckedIndexedAccess` earns its keep in application code, where an
+     * out-of-range read propagates as `undefined` and surfaces somewhere else
+     * as a wrong number on screen. In a harness the same read throws on the
+     * spot and the run fails loudly, which is precisely the wanted behaviour —
+     * so the flag would buy 97 guard clauses and no safety.
+     *
+     * Everything else in `tsconfig.base.json` still applies here, including
+     * `strict` and `exactOptionalPropertyTypes`. This is the only relaxation,
+     * and it is the only directory it applies to.
+     */
+    "noUncheckedIndexedAccess": false
   },
   "include": ["scripts"]
 }

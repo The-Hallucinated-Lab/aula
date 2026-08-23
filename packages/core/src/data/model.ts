@@ -670,10 +670,25 @@ export function canTeach(f: Staff, course: Course, headcount: number): boolean {
 export const minutesToLabel = (m: number) =>
   `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`
 
-export const labelToMinutes = (s: string) => {
-  const [h, m] = s.split(':').map(Number)
-  return (h || 0) * 60 + (m || 0)
+/**
+ * Strict clock parse. `null` means "this is not a time of day".
+ *
+ * Callers that must distinguish a bad value from midnight use this one.
+ * `labelToMinutes` below is the lenient form, kept because most callers read a
+ * field that `normaliseConfig` has already vetted and genuinely do want a
+ * number back.
+ */
+export const parseClock = (s: string): number | null => {
+  const match = /^\s*(\d{1,2}):(\d{2})\s*$/.exec(s)
+  if (!match) return null
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  if (hours > 23 || minutes > 59) return null
+  return hours * 60 + minutes
 }
+
+/** Minutes past midnight, treating anything unparseable as 00:00. */
+export const labelToMinutes = (s: string) => parseClock(s) ?? 0
 
 /** Deterministic PRNG so a given seed always reproduces the same schedule. */
 export function mulberry32(seed: number) {
@@ -687,13 +702,19 @@ export function mulberry32(seed: number) {
   }
 }
 
-export const pick = <T>(rng: () => number, arr: readonly T[]) => arr[Math.floor(rng() * arr.length)]
+/** A random element, or `undefined` if there is nothing to choose from. */
+export const pick = <T>(rng: () => number, arr: readonly T[]): T | undefined =>
+  arr[Math.floor(rng() * arr.length)]
 
-export const shuffled = <T>(rng: () => number, arr: readonly T[]) => {
+/** Fisher-Yates, seeded, returning a new array. */
+export const shuffled = <T>(rng: () => number, arr: readonly T[]): T[] => {
   const a = [...arr]
   for (let i = a.length - 1; i > 0; i--) {
     const j = Math.floor(rng() * (i + 1))
-    ;[a[i], a[j]] = [a[j], a[i]]
+    const ai = a[i] as T
+    const aj = a[j] as T
+    a[i] = aj
+    a[j] = ai
   }
   return a
 }

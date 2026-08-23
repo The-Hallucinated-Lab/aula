@@ -49,7 +49,9 @@ export function CustomRules() {
   const create = () => {
     addCustom(
       template,
-      { kind: scopeKind, id: scopeKind === 'all' ? undefined : effectiveScopeId },
+      // A scope of "everyone" carries no id at all rather than an undefined one:
+      // `CustomScope.id` is optional, and the difference survives save/load.
+      { kind: scopeKind, ...(scopeKind === 'all' ? {} : { id: effectiveScopeId }) },
       scopeLabel,
     )
     setAdding(false)
@@ -77,8 +79,9 @@ export function CustomRules() {
                 onChange={v => {
                   const next = v as CustomTemplate
                   setTemplate(next)
-                  const scopes = TEMPLATE_BY_ID.get(next)!.scopes
-                  if (!scopes.includes(scopeKind)) setScopeKind(scopes[0])
+                  const scopes = TEMPLATE_BY_ID.get(next)?.scopes ?? []
+                  const fallback = scopes[0]
+                  if (fallback !== undefined && !scopes.includes(scopeKind)) setScopeKind(fallback)
                 }}
               />
             </Field>
@@ -206,7 +209,10 @@ function CustomRuleRow(props: {
                     <Combobox
                       value={String(value ?? 0)}
                       ariaLabel={p.label}
-                      options={grid.days.map(d => ({ value: String(d), label: DAY_NAMES[d] }))}
+                      options={grid.days.map(d => ({
+                        value: String(d),
+                        label: DAY_NAMES[d] ?? '?',
+                      }))}
                       onChange={v => set({ params: { ...rule.params, [p.key]: Number(v) } })}
                     />
                   </Field>

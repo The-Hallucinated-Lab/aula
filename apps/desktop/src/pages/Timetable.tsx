@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useApp, type SubstituteProposal } from '../store'
 import { Combobox, Empty, Hero, SERIES } from '../components/ui'
 import {
@@ -78,32 +78,33 @@ export function Timetable() {
     })
   }, [entities, view, institution])
 
-  // keep the selector valid whenever the institution or view changes
-  useEffect(() => {
-    if (!entities.some(e => e.id === entityId)) setEntityId(entities[0]?.id ?? '')
-  }, [entities, entityId])
+  /* Keep the selector valid when the institution or the view changes.
+     Derived during render rather than corrected in an effect: an effect would
+     render once with a selection that is not in the list, then set state and
+     render again — visible as a flash of the wrong timetable. */
+  const activeEntityId = entities.some(e => e.id === entityId) ? entityId : (entities[0]?.id ?? '')
 
   const visible = useMemo(
     () =>
       sessions.filter(s =>
         view === 'cohort'
-          ? s.cohortId === entityId
+          ? s.cohortId === activeEntityId
           : view === 'staff'
-            ? s.staffId === entityId
-            : s.roomId === entityId,
+            ? s.staffId === activeEntityId
+            : s.roomId === activeEntityId,
       ),
-    [sessions, view, entityId],
+    [sessions, view, activeEntityId],
   )
 
   /** start cell -> session, plus cells a multi-slot block continues through */
   const { starts, covered } = useMemo(() => {
-    const starts = new Map<string, Session>()
-    const covered = new Set<string>()
+    const startCells = new Map<string, Session>()
+    const continuationCells = new Set<string>()
     for (const s of visible) {
-      starts.set(`${s.day}:${s.slot}`, s)
-      for (let k = 1; k < s.length; k++) covered.add(`${s.day}:${s.slot + k}`)
+      startCells.set(`${s.day}:${s.slot}`, s)
+      for (let k = 1; k < s.length; k++) continuationCells.add(`${s.day}:${s.slot + k}`)
     }
-    return { starts, covered }
+    return { starts: startCells, covered: continuationCells }
   }, [visible])
 
   const selectedSession = sessions.find(s => s.id === selected) ?? null
@@ -184,7 +185,7 @@ export function Timetable() {
               ))}
             </div>
             <Combobox
-              value={entityId}
+              value={activeEntityId}
               ariaLabel="Choose what to view"
               width={280}
               options={entityOptions}
@@ -197,10 +198,10 @@ export function Timetable() {
               className="btn btn-soft"
               title="Export this view as a week grid"
               onClick={async () => {
-                const label = entities.find(e => e.id === entityId)?.name ?? view
+                const label = entities.find(e => e.id === activeEntityId)?.name ?? view
                 const res = await saveText({
                   suggestedName: `${label.replace(/[^\w-]+/g, '-').toLowerCase()}-timetable.csv`,
-                  data: gridCsv(institution, sessions, view, entityId),
+                  data: gridCsv(institution, sessions, view, activeEntityId),
                   filters: [{ name: 'CSV', extensions: ['csv'] }],
                 })
                 if (res.ok) toast(`Exported ${label}`, 'ok')
@@ -258,7 +259,7 @@ export function Timetable() {
                   key={slot}
                   slot={slot}
                   days={grid.days}
-                  label={grid.labels[slot]}
+                  label={grid.labels[slot] ?? ''}
                   lunch={grid.lunchSlots.includes(slot)}
                   calendar={institution.calendar}
                   starts={starts}

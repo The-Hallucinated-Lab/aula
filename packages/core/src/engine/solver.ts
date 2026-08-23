@@ -80,8 +80,7 @@ function activeRules(states: Record<string, ConstraintState>) {
   }
 
   // cheapest, most-discriminating checks first so rejection is fast
-  hard.sort((a, b) => rank(a.def) - rank(b.def))
-  return { hard, soft }
+  return { hard: hard.toSorted((a, b) => rank(a.def) - rank(b.def)), soft }
 }
 
 const FAST_FIRST: Record<string, number> = {
@@ -150,8 +149,7 @@ function buildDemands(inst: Institution): Demand[] {
     }
   }
 
-  demands.sort((a, b) => a.slack - b.slack)
-  return demands
+  return demands.toSorted((a, b) => a.slack - b.slack)
 }
 
 /* ------------------------------------------------------------------ *
@@ -289,8 +287,7 @@ export function solve(input: SolveInput): SolveReport {
     // the outcome without ever loosening a constraint.
     const roomPool = shuffled(rng, demand.rooms).slice(0, 14)
     const staffPool = demand.staff
-      .slice()
-      .sort((a, b) => occ.staffWeekHours(a) - occ.staffWeekHours(b))
+      .toSorted((a, b) => occ.staffWeekHours(a) - occ.staffWeekHours(b))
       .slice(0, 6)
 
     let toPlace = demand.remaining
@@ -357,8 +354,8 @@ export function solve(input: SolveInput): SolveReport {
           if (shiftWindow && !fitsShift(shiftWindow, slot, demand.length)) continue
 
           for (const fid of staff) {
-            const staff = ctx.staffById.get(fid)
-            if (!staff) continue
+            const person = ctx.staffById.get(fid)
+            if (!person) continue
 
             for (const rid of rooms) {
               const room = rid ? (ctx.roomById.get(rid) ?? null) : null
@@ -366,7 +363,7 @@ export function solve(input: SolveInput): SolveReport {
               const cand: Candidate = {
                 course,
                 cohort,
-                staff,
+                staff: person,
                 room,
                 day,
                 slot,
@@ -422,7 +419,7 @@ export function solve(input: SolveInput): SolveReport {
       }
 
       if (!best) {
-        const top = [...localReasons.entries()].sort((a, b) => b[1].count - a[1].count)
+        const top = [...localReasons.entries()].toSorted((a, b) => b[1].count - a[1].count)
         unplaced.push({
           courseId: course.id,
           courseLabel: `${course.code} ${course.name}`,
@@ -460,7 +457,7 @@ export function solve(input: SolveInput): SolveReport {
       const def = CATALOGUE.find(c => c.id === code)
       return { code, label: def?.text ?? code, blocked, hard: def?.hard ?? true }
     })
-    .sort((a, b) => b.blocked - a.blocked)
+    .toSorted((a, b) => b.blocked - a.blocked)
     .slice(0, 12)
 
   return {

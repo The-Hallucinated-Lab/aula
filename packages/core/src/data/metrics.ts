@@ -38,10 +38,11 @@ export function computeMetrics(inst: Institution, sessions: Session[]): Metrics 
   for (const s of sessions) {
     contactHours += s.length
     const di = dayIndex.get(s.day)
-    if (di !== undefined) {
+    const row = di === undefined ? undefined : heatmap[di]
+    if (row) {
       for (let k = 0; k < s.length; k++) {
         const slot = s.slot + k
-        if (slot < grid.slots) heatmap[di][slot]++
+        if (slot < grid.slots) row[slot] = (row[slot] ?? 0) + 1
       }
     }
     staffLoad.set(s.staffId, (staffLoad.get(s.staffId) ?? 0) + s.length)

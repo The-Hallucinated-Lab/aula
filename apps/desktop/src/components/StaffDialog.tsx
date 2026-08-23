@@ -43,7 +43,27 @@ export function StaffDialog(props: {
   const [showAllCourses, setShowAllCourses] = useState(false)
   const [touched, setTouched] = useState(false)
 
-  const set = (p: Partial<StaffRecord>) => setRec(r => ({ ...r, ...p }))
+  /**
+   * A field edit, including clearing an optional one.
+   *
+   * `Partial<StaffRecord>` cannot express this under
+   * `exactOptionalPropertyTypes`: it keeps every key optional but still
+   * forbids an explicit `undefined`, so "no home building" would be
+   * unrepresentable. Spreading an explicit `undefined` over the record is
+   * exactly the clearing semantics the form needs.
+   */
+  type StaffPatch = { [K in keyof StaffRecord]?: StaffRecord[K] | undefined }
+  const set = (patch: StaffPatch) =>
+    setRec(current => {
+      const next: StaffRecord = { ...current }
+      for (const [key, value] of Object.entries(patch)) {
+        // Clearing removes the key rather than setting it to `undefined`, which
+        // is what the record contract means by an absent optional field.
+        if (value === undefined) delete next[key as keyof StaffRecord]
+        else Object.assign(next, { [key]: value })
+      }
+      return next
+    })
   const grid = institution.grid
 
   /* Courses they could be given. Cross-department teaching is normal, so the
@@ -53,7 +73,7 @@ export function StaffDialog(props: {
     const list = showAllCourses
       ? institution.courses
       : institution.courses.filter(c => c.deptId === deptId)
-    return [...list].sort((a, b) => a.code.localeCompare(b.code))
+    return list.toSorted((a, b) => a.code.localeCompare(b.code))
   }, [institution.courses, deptId, showAllCourses])
 
   const nameError = rec.name.trim() === '' ? 'Give this person a name.' : ''
@@ -78,8 +98,8 @@ export function StaffDialog(props: {
       name: rec.name.trim(),
       staffCode: rec.staffCode.trim(),
       email: rec.email.trim(),
-      unavailableDays: [...rec.unavailableDays].sort((a, b) => a - b),
-      availableDays: [...rec.availableDays].sort((a, b) => a - b),
+      unavailableDays: rec.unavailableDays.toSorted((a, b) => a - b),
+      availableDays: rec.availableDays.toSorted((a, b) => a - b),
     })
   }
 
@@ -465,7 +485,7 @@ export function StaffDialog(props: {
                 { value: '', label: 'No anchor' },
                 ...config.buildings.map(b => ({ value: b.id, label: b.name })),
               ]}
-              onChange={v => set({ homeBuildingId: v || undefined })}
+              onChange={v => set(v === '' ? { homeBuildingId: undefined } : { homeBuildingId: v })}
             />
           </Field>
           <Field label="Preferred room type" hint={HELP.preferredRoomKind}>
@@ -476,7 +496,13 @@ export function StaffDialog(props: {
                 { value: '', label: 'No preference' },
                 ...SELECTABLE_ROOM_KINDS.map(k => ({ value: k, label: k })),
               ]}
-              onChange={v => set({ preferredRoomKind: (v || undefined) as RoomKind | undefined })}
+              onChange={v =>
+                set(
+                  v === ''
+                    ? { preferredRoomKind: undefined }
+                    : { preferredRoomKind: v as RoomKind },
+                )
+              }
             />
           </Field>
         </div>

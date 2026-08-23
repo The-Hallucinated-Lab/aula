@@ -6,7 +6,7 @@
  * it serialisable: it is what gets written to an `.aula.json` project file.
  */
 
-import { DAY_NAMES } from './model'
+import { DAY_NAMES, labelToMinutes, parseClock } from './model'
 import type { CalendarEvent, RoomKind, StaffRank } from './model'
 import {
   isValidDate,
@@ -774,31 +774,70 @@ export function copyProfile(source: Profile, name: string, batchLabel: string): 
   }
 }
 
-export function slotPlan(cal: CalendarConfig): { starts: number[]; durations: number[] } {
-  const [sh, sm] = cal.dayStart.split(':').map(Number)
-  const [eh, em] = cal.dayEnd.split(':').map(Number)
-  const start = sh * 60 + sm
-  const span = eh * 60 + em - start
-  if (!Number.isFinite(span) || span <= 0 || cal.slotMinutes <= 0) {
-    return { starts: [], durations: [] }
-  }
+/** One period in the day, with its start and end already resolved. */
+export interface SlotSpan {
+  /** minutes past midnight when the period starts */
+  start: number
+  /** how long the period runs, in minutes */
+  duration: number
+  /** minutes past midnight when the period ends */
+  end: number
+}
 
+export interface SlotPlan {
+  /** the periods themselves — start and duration paired by construction */
+  slots: SlotSpan[]
+  /** start times alone, for callers that only need the axis */
+  starts: number[]
+  /** durations alone, index-aligned with `starts` */
+  durations: number[]
+}
+
+/**
+ * Lay the teaching day out into periods.
+ *
+ * `slots` is the shape to prefer. `starts` and `durations` were the original
+ * return and are kept because several callers only want one axis, but two
+ * parallel arrays make a length mismatch expressible, and every consumer that
+ * indexes both has to re-establish by hand that the indices line up.
+ *
+ * A malformed clock string yields an empty plan rather than a day of `NaN`
+ * periods; `summarise()` is what turns that into a message for the user.
+ */
+export function slotPlan(cal: CalendarConfig): SlotPlan {
+  /* `parseClock`, not `labelToMinutes`: the lenient reader turns a malformed
+     string into midnight, which here would lay out a teaching day starting at
+     00:00 rather than refusing the configuration. */
+  const start = parseClock(cal.dayStart)
+  const end = parseClock(cal.dayEnd)
+  const empty: SlotPlan = { slots: [], starts: [], durations: [] }
+  if (start === null || end === null || cal.slotMinutes <= 0) return empty
+
+  const span = end - start
+  if (span <= 0) return empty
+
+  const slots: SlotSpan[] = []
   const whole = Math.floor(span / cal.slotMinutes)
-  const starts: number[] = []
-  const durations: number[] = []
   for (let i = 0; i < whole; i++) {
-    starts.push(start + i * cal.slotMinutes)
-    durations.push(cal.slotMinutes)
+    const at = start + i * cal.slotMinutes
+    slots.push({ start: at, duration: cal.slotMinutes, end: at + cal.slotMinutes })
   }
 
+  /* A day that does not divide evenly leaves a remainder. Keeping it as a
+     shorter final period is what lets a 09:00-18:00 day with 50-minute slots
+     end at 18:00 instead of silently losing the 17:20 class. */
   const remainder = span - whole * cal.slotMinutes
   const floor = Math.max(0, cal.minFinalSlotMinutes ?? 0)
   if (floor > 0 && remainder >= floor) {
-    starts.push(start + whole * cal.slotMinutes)
-    durations.push(remainder)
+    const at = start + whole * cal.slotMinutes
+    slots.push({ start: at, duration: remainder, end: at + remainder })
   }
 
-  return { starts, durations }
+  return {
+    slots,
+    starts: slots.map(s => s.start),
+    durations: slots.map(s => s.duration),
+  }
 }
 
 export function slotsPerDay(cal: CalendarConfig): number {
@@ -1056,7 +1095,7 @@ export function summarise(cfg: SetupConfig): ConfigSummary {
   const slotsPerRoom = bookableSlotsPerRoom
   const usablePerDay = Math.max(1, perDay - lunchSlotsPerDay(cfg.calendar))
 
-  for (const [kind, rawNeeded] of [...slotHoursByKind].sort((a, b) => b[1] - a[1])) {
+  for (const [kind, rawNeeded] of [...slotHoursByKind].toSorted((a, b) => b[1] - a[1])) {
     if (rawNeeded <= 0 || slotsPerRoom <= 0) continue
     const count = roomsByKind.get(kind) ?? 0
     const available = count * slotsPerRoom
@@ -1123,21 +1162,22 @@ export function summarise(cfg: SetupConfig): ConfigSummary {
   }
 }
 
-/** Slots per day that overlap the protected lunch window. Mirrors buildGrid. */
+/**
+ * Periods per day that overlap the protected lunch window.
+ *
+ * This has to agree with `buildGrid`'s `lunchSlots` exactly — capacity
+ * arithmetic in `summarise()` subtracts it, and the solver protects the
+ * periods the grid names. It previously rebuilt the day by hand on the
+ * assumption that every period is `slotMinutes` long, which stopped being true
+ * when `slotPlan` gained a shorter final period: a day ending in a 40-minute
+ * remainder that overlapped lunch was counted with the wrong span. Reading
+ * `slotPlan` is both shorter and the only way the two can stay in step.
+ */
 export function lunchSlotsPerDay(cal: CalendarConfig): number {
-  const count = slotsPerDay(cal)
-  if (count <= 0 || cal.lunchMinutes <= 0) return 0
-  const [sh, sm] = cal.dayStart.split(':').map(Number)
-  const [lh, lm] = cal.lunchStart.split(':').map(Number)
-  const dayStart = sh * 60 + sm
-  const lunchFrom = lh * 60 + lm
+  if (cal.lunchMinutes <= 0) return 0
+  const lunchFrom = labelToMinutes(cal.lunchStart)
   const lunchTo = lunchFrom + cal.lunchMinutes
-  let n = 0
-  for (let i = 0; i < count; i++) {
-    const start = dayStart + i * cal.slotMinutes
-    if (start < lunchTo && start + cal.slotMinutes > lunchFrom) n++
-  }
-  return n
+  return slotPlan(cal).slots.filter(s => s.start < lunchTo && s.end > lunchFrom).length
 }
 
 /**

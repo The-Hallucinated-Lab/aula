@@ -13,8 +13,8 @@ export const SERIES = [
 export function Hero(props: {
   eyebrow: string
   title: ReactNode
-  desc?: string
-  side?: ReactNode
+  desc?: string | undefined
+  side?: ReactNode | undefined
 }) {
   return (
     <div className="hero">
@@ -32,9 +32,9 @@ export function Hero(props: {
 
 export function Section(props: {
   title: string
-  hint?: string
+  hint?: string | undefined
   children: ReactNode
-  side?: ReactNode
+  side?: ReactNode | undefined
 }) {
   return (
     <section className="section">
@@ -51,8 +51,8 @@ export function Section(props: {
 export function Stat(props: {
   label: string
   value: ReactNode
-  note?: ReactNode
-  tone?: 'good' | 'bad'
+  note?: ReactNode | undefined
+  tone?: 'good' | 'bad' | undefined
 }) {
   return (
     <div className="card stat">
@@ -69,10 +69,10 @@ export function Stat(props: {
 
 export function Field(props: {
   label: string
-  hint?: string
-  htmlFor?: string
+  hint?: string | undefined
+  htmlFor?: string | undefined
   children: ReactNode
-  wide?: boolean
+  wide?: boolean | undefined
 }) {
   return (
     <label className={`field ${props.wide ? 'field-wide' : ''}`} htmlFor={props.htmlFor}>
@@ -86,12 +86,12 @@ export function Field(props: {
 export function NumberInput(props: {
   value: number
   onChange: (n: number) => void
-  min?: number
-  max?: number
-  step?: number
-  suffix?: string
-  id?: string
-  ariaLabel?: string
+  min?: number | undefined
+  max?: number | undefined
+  step?: number | undefined
+  suffix?: string | undefined
+  id?: string | undefined
+  ariaLabel?: string | undefined
 }) {
   const clamp = (n: number) => {
     if (Number.isNaN(n)) return props.min ?? 0
@@ -123,10 +123,10 @@ export function NumberInput(props: {
 export function TextInput(props: {
   value: string
   onChange: (s: string) => void
-  placeholder?: string
-  id?: string
-  ariaLabel?: string
-  type?: 'text' | 'time'
+  placeholder?: string | undefined
+  id?: string | undefined
+  ariaLabel?: string | undefined
+  type?: 'text' | 'time' | undefined
 }) {
   return (
     <input
@@ -145,7 +145,7 @@ export function Segmented<T extends string>(props: {
   value: T
   options: { value: T; label: string }[]
   onChange: (v: T) => void
-  ariaLabel?: string
+  ariaLabel?: string | undefined
 }) {
   return (
     <div className="tabs" role="radiogroup" aria-label={props.ariaLabel}>
@@ -169,7 +169,7 @@ export function Switch(props: {
   on: boolean
   onChange: () => void
   label: string
-  disabled?: boolean
+  disabled?: boolean | undefined
 }) {
   return (
     <button
@@ -188,7 +188,7 @@ export function Switch(props: {
 export function Callout(props: {
   tone: 'ok' | 'warn' | 'danger' | 'info'
   title: string
-  children?: ReactNode
+  children?: ReactNode | undefined
 }) {
   const glyph =
     props.tone === 'ok' ? '✓' : props.tone === 'danger' ? '⊘' : props.tone === 'warn' ? '!' : 'i'
@@ -252,9 +252,9 @@ export function Meter(props: { value: number; label?: string; tone?: string }) {
 
 /** Small labelled pill used for counts across the app. */
 export function Pill(props: {
-  tone?: 'hard' | 'soft' | 'accent' | 'ok' | 'warn' | 'danger'
+  tone?: 'hard' | 'soft' | 'accent' | 'ok' | 'warn' | 'danger' | undefined
   children: ReactNode
-  mono?: boolean
+  mono?: boolean | undefined
 }) {
   return (
     <span className={`chip chip-${props.tone ?? 'soft'} ${props.mono ? 'mono' : ''}`}>
@@ -282,24 +282,24 @@ export interface ComboOption {
   value: string
   label: string
   /** shown after the label — a staff code, a department, a course code */
-  hint?: string
+  hint?: string | undefined
   /** matched when filtering but never displayed */
-  keywords?: string
-  disabled?: boolean
+  keywords?: string | undefined
+  disabled?: boolean | undefined
 }
 
 export function Combobox(props: {
   value: string
   options: ComboOption[]
   onChange: (value: string) => void
-  placeholder?: string
+  placeholder?: string | undefined
   /** shown when there is nothing to choose from, so the reason is visible */
-  emptyText?: string
-  id?: string
-  ariaLabel?: string
-  disabled?: boolean
+  emptyText?: string | undefined
+  id?: string | undefined
+  ariaLabel?: string | undefined
+  disabled?: boolean | undefined
   /** width in px; the wrapper is inline-block so it does not stretch rows */
-  width?: number
+  width?: number | undefined
 }) {
   const { options, value, onChange } = props
   const [open, setOpen] = useState(false)

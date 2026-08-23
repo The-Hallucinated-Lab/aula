@@ -49,7 +49,7 @@ export function timetableCsv(inst: Institution, sessions: Session[]): string {
     ],
   ]
 
-  const ordered = [...sessions].sort(
+  const ordered = sessions.toSorted(
     (a, b) => a.day - b.day || a.slot - b.slot || a.cohortId.localeCompare(b.cohortId),
   )
 

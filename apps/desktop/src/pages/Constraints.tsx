@@ -299,7 +299,7 @@ export function Constraints() {
 function ConstraintRow(props: {
   def: ConstraintDef
   first: boolean
-  blocked?: number
+  blocked?: number | undefined
   onToggle: () => void
   onWeight: (w: number) => void
   onParam: (key: string, value: number | string | boolean) => void

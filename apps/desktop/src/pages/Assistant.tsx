@@ -70,9 +70,17 @@ export function Assistant() {
           setProbeError(res.error ?? 'Ollama is running but has no models installed.')
           return
         }
+        // Exact tag, then any build of the same family, then whatever is there.
+        const family = DEFAULT_MODEL.split(':')[0] ?? DEFAULT_MODEL
         const exact = res.models.find(m => m === DEFAULT_MODEL || m.startsWith(`${DEFAULT_MODEL}:`))
-        const family = res.models.find(m => m.startsWith(DEFAULT_MODEL.split(':')[0]))
-        setModel(exact ?? family ?? res.models[0])
+        const sameFamily = res.models.find(m => m.startsWith(family))
+        const chosen = exact ?? sameFamily ?? res.models[0]
+        if (chosen === undefined) {
+          setMode('offline')
+          setProbeError('Ollama is running but has no models installed.')
+          return
+        }
+        setModel(chosen)
         setMode('local')
       } catch (error) {
         if (cancelled) return
@@ -115,7 +123,15 @@ export function Assistant() {
     const api = bridge()
     if (mode !== 'local' || !model || !api) {
       const answer = explain(q, store)
-      setMessages(m => [...m, { id: msgId++, from: 'aula', text: answer.text, tag: answer.tag }])
+      setMessages(m => [
+        ...m,
+        {
+          id: msgId++,
+          from: 'aula',
+          text: answer.text,
+          ...(answer.tag ? { tag: answer.tag } : {}),
+        },
+      ])
       scrollDown()
       return
     }
@@ -307,7 +323,7 @@ function explain(q: string, s: Store): { text: string; tag?: string } {
   if (/load|busiest|heaviest|overwork|workload/.test(lower)) {
     const ranked = s.institution.staff
       .map(f => ({ f, h: s.metrics.staffLoad.get(f.id) ?? 0 }))
-      .sort((a, b) => b.h - a.h)
+      .toSorted((a, b) => b.h - a.h)
       .slice(0, 4)
     return {
       tag: 'Workload',
@@ -316,7 +332,7 @@ function explain(q: string, s: Store): { text: string; tag?: string } {
   }
 
   if (/room/.test(lower) && /unused|barely|idle|empty|least/.test(lower)) {
-    const ranked = [...s.metrics.roomUsage].sort((a, b) => a.used - b.used).slice(0, 5)
+    const ranked = s.metrics.roomUsage.toSorted((a, b) => a.used - b.used).slice(0, 5)
     const lines = ranked.map(r => {
       const room = s.institution.rooms.find(x => x.id === r.roomId)
       return `${room?.name ?? r.roomId} (${room?.kind ?? '?'}, ${room?.capacity ?? '?'} seats) — ${r.used} h`
@@ -338,9 +354,10 @@ function explain(q: string, s: Store): { text: string; tag?: string } {
       }),
     )
     const day = s.institution.grid.days[bestDay]
+    const dayName = day === undefined ? 'the busiest day' : DAY_NAMES[day]
     return {
       tag: 'Pressure',
-      text: `Room utilisation is ${(s.metrics.utilization * 100).toFixed(1)}% across the week. The busiest moment is ${DAY_NAMES[day]} at ${s.institution.grid.labels[bestSlot]}, with ${best} of ${s.institution.rooms.length} rooms in use.`,
+      text: `Room utilisation is ${(s.metrics.utilization * 100).toFixed(1)}% across the week. The busiest moment is ${dayName} at ${s.institution.grid.labels[bestSlot]}, with ${best} of ${s.institution.rooms.length} rooms in use.`,
     }
   }
 
@@ -349,7 +366,7 @@ function explain(q: string, s: Store): { text: string; tag?: string } {
     const mine = s.sessions.filter(x => x.cohortId === cohort.id)
     const dayMatch = DAY_NAMES.findIndex(d => lower.includes(d.toLowerCase()))
     if (dayMatch >= 0) {
-      const onDay = mine.filter(x => x.day === dayMatch).sort((a, b) => a.slot - b.slot)
+      const onDay = mine.filter(x => x.day === dayMatch).toSorted((a, b) => a.slot - b.slot)
       if (onDay.length === 0)
         return {
           tag: cohort.name,

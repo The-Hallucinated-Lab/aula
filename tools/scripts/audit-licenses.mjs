@@ -138,7 +138,7 @@ const report = {
   generatedAt: new Date().toISOString(),
   runtimePackages: runtime.size,
   totalPackages: everything.size,
-  distribution: Object.fromEntries([...tally.entries()].sort((a, b) => b[1] - a[1])),
+  distribution: Object.fromEntries([...tally.entries()].toSorted((a, b) => b[1] - a[1])),
   violations,
   fileLevelCopyleftNotices: notices,
   unknown,

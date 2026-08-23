@@ -14,7 +14,7 @@ import { STORAGE_KEY } from '../store'
 interface Props {
   children: ReactNode
   /** changes to this value clear a previous failure — pass the route path */
-  resetKey?: string
+  resetKey?: string | undefined
 }
 
 interface State {
@@ -23,6 +23,17 @@ interface State {
   /** the resetKey the current failure belongs to */
   key?: string
 }
+
+/**
+ * The `key` half of a state patch, present only when there is a reset key.
+ *
+ * `State.key` is optional and `exactOptionalPropertyTypes` is on, so
+ * `{ key: undefined }` is not the same as `{}` — and the difference matters
+ * here, because `getDerivedStateFromProps` distinguishes "no key recorded yet"
+ * from "recorded, and it has not changed".
+ */
+const keyOf = (props: Props): Partial<State> =>
+  props.resetKey === undefined ? {} : { key: props.resetKey }
 
 export class ErrorBoundary extends Component<Props, State> {
   override state: State = { error: null, stack: '' }
@@ -34,9 +45,9 @@ export class ErrorBoundary extends Component<Props, State> {
   /** Navigating away clears the failure without a second render pass. */
   static getDerivedStateFromProps(props: Props, state: State): Partial<State> | null {
     if (state.error && state.key !== undefined && state.key !== props.resetKey) {
-      return { error: null, stack: '', key: props.resetKey }
+      return { error: null, stack: '', ...keyOf(props) }
     }
-    if (state.error && state.key === undefined) return { key: props.resetKey }
+    if (state.error && state.key === undefined) return keyOf(props)
     return null
   }
 

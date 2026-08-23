@@ -24,11 +24,11 @@ export function Portal({ children }: { children: ReactNode }) {
  */
 export function Dialog(props: {
   title: string
-  subtitle?: string
+  subtitle?: string | undefined
   /** 'wide' for multi-column forms; the default suits a short confirmation */
-  size?: 'default' | 'wide'
+  size?: 'default' | 'wide' | undefined
   onClose: () => void
-  footer?: ReactNode
+  footer?: ReactNode | undefined
   children: ReactNode
 }) {
   const panel = useRef<HTMLDivElement>(null)
@@ -60,7 +60,8 @@ export function Dialog(props: {
       if (focusable.length === 0) return
 
       const first = focusable[0]
-      const last = focusable[focusable.length - 1]
+      const last = focusable.at(-1)
+      if (first === undefined || last === undefined) return
       if (e.shiftKey && document.activeElement === first) {
         e.preventDefault()
         last.focus()

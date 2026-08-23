@@ -27,6 +27,31 @@ import {
 
 const ok = null
 
+/**
+ * Longest run of consecutive day indices.
+ *
+ * Two soft rules — a staff member's consecutive teaching days and a cohort's
+ * consecutive early starts — asked the same question with the same hand-rolled
+ * loop. The input is not assumed sorted; both callers append today's day to a
+ * set, which has no order.
+ */
+const earliestDay = (days: readonly number[]): number | undefined =>
+  days.length === 0 ? undefined : Math.min(...days)
+
+function longestRun(days: readonly number[]): number {
+  const sorted = days.toSorted((a, b) => a - b)
+  let best = 0
+  let run = 0
+  let previous: number | undefined
+  for (const day of sorted) {
+    if (previous === undefined || day !== previous + 1) run = 1
+    else run += 1
+    best = Math.max(best, run)
+    previous = day
+  }
+  return best
+}
+
 /** Does this course actually ask for the feature this constraint governs? */
 function needsFeature(c: Candidate, feature: string): boolean {
   return c.course.requires.includes(feature as RoomFeature)
@@ -240,6 +265,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       if (dayIdx < 0) return ok
 
       const start = ctx.grid.starts[c.slot]
+      if (start === undefined) return ok
       const end = slotEndMinutes(ctx.grid, c.slot, c.length)
 
       const prevDay = ctx.grid.days[dayIdx - 1]
@@ -255,7 +281,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       if (nextDay !== undefined) {
         for (const s of occ.staffOnDay(c.staff.id, nextDay)) {
           const nextStart = ctx.grid.starts[s.slot]
-          if (nextStart + 24 * 60 - end < restMinutes) {
+          if (nextStart !== undefined && nextStart + 24 * 60 - end < restMinutes) {
             return `${c.staff.name} would get under ${num(p, 'restHours', 12)} h rest before the next morning`
           }
         }
@@ -299,7 +325,8 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       for (let k = 0; k < c.length; k++) taken.add(c.slot + k)
 
       const first = lunch[0]
-      const last = lunch[lunch.length - 1]
+      const last = lunch.at(-1)
+      if (first === undefined || last === undefined) return ok
       let before = false
       let after = false
       for (const s of taken) {
@@ -372,14 +399,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
   consecutiveDayCap: {
     cost: (c, occ, ctx, p) => {
       const cap = num(p, 'maxDays', 3)
-      const days = [...occ.staffTeachingDays(c.staff.id), c.day].sort((a, b) => a - b)
-      let run = 1,
-        best = 1
-      for (let i = 1; i < days.length; i++) {
-        run = days[i] === days[i - 1] + 1 ? run + 1 : 1
-        best = Math.max(best, run)
-      }
-      void ctx
+      const best = longestRun([...occ.staffTeachingDays(c.staff.id), c.day])
       return best > cap ? Math.min(1, (best - cap) / ctx.grid.days.length) : 0
     },
   },
@@ -559,13 +579,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
     cost: (c, occ, ctx, p) => {
       if (c.slot >= ctx.grid.earlyUntil) return 0
       const cap = num(p, 'maxDays', 3)
-      const days = [...occ.cohortEarlyDaySet(c.cohort.id), c.day].sort((a, b) => a - b)
-      let run = 1,
-        best = 1
-      for (let i = 1; i < days.length; i++) {
-        run = days[i] === days[i - 1] + 1 ? run + 1 : 1
-        best = Math.max(best, run)
-      }
+      const best = longestRun([...occ.cohortEarlyDaySet(c.cohort.id), c.day])
       return best > cap ? 1 : 0
     },
   },
@@ -660,9 +674,11 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       const lectures = ctx.inst.courses.filter(
         x => x.programId === c.course.programId && x.year === c.course.year && x.kind === 'Core',
       )
-      const earliest = lectures
-        .flatMap(l => [...occ.cohortCourseMeetsOn(c.cohort.id, l.id)])
-        .sort((a, b) => a - b)[0]
+      // `Math.min`, not sort-and-take-first: this runs once per candidate
+      // placement, and the whole ordering is thrown away to read one value.
+      const earliest = earliestDay(
+        lectures.flatMap(l => [...occ.cohortCourseMeetsOn(c.cohort.id, l.id)]),
+      )
       if (earliest === undefined) return 0.3
       return c.day > earliest ? 0 : 0.7
     },
@@ -674,9 +690,9 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       const parents = ctx.inst.courses.filter(
         x => x.programId === c.course.programId && x.year === c.course.year && x.kind === 'Core',
       )
-      const earliest = parents
-        .flatMap(l => [...occ.cohortCourseMeetsOn(c.cohort.id, l.id)])
-        .sort((a, b) => a - b)[0]
+      const earliest = earliestDay(
+        parents.flatMap(l => [...occ.cohortCourseMeetsOn(c.cohort.id, l.id)]),
+      )
       return earliest !== undefined && c.day > earliest ? 0 : 0.6
     },
   },

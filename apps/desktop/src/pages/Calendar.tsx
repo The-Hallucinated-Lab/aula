@@ -732,7 +732,7 @@ function groupBlackouts(
   blackouts: { day: number; slot: number; name: string; coreOnly: boolean }[],
   labels: string[],
 ): { key: string; day: number; range: string; name: string; coreOnly: boolean }[] {
-  const sorted = [...blackouts].sort((a, b) => a.day - b.day || a.slot - b.slot)
+  const sorted = blackouts.toSorted((a, b) => a.day - b.day || a.slot - b.slot)
   const out: { key: string; day: number; range: string; name: string; coreOnly: boolean }[] = []
 
   for (const b of sorted) {

@@ -15,6 +15,8 @@
     /* Type safety. `strict` is the floor, not the ceiling — the flags below it
        are the ones that actually surface latent crashes in this codebase. */
     "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "noImplicitOverride": true,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,

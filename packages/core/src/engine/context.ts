@@ -2,7 +2,7 @@
  * Engine context — the lookups and helpers every rule shares.
  */
 
-import { sessionMinutes } from '../data/model'
+import { parseClock, sessionMinutes } from '../data/model'
 import type {
   Building,
   Cohort,
@@ -118,23 +118,19 @@ export const slotDuration = (grid: TimeGrid, slot: number) =>
 
 /** Convert "17:30" into the first slot index at or after that time. */
 export function slotAtOrAfter(grid: TimeGrid, time: string, fallback: number): number {
-  const [h, m] = time.split(':').map(Number)
-  if (!Number.isFinite(h)) return fallback
-  const mins = h * 60 + (m || 0)
-  for (let i = 0; i < grid.slots; i++) {
-    if (grid.starts[i] >= mins) return i
-  }
-  return grid.slots
+  const mins = parseClock(time)
+  if (mins === null) return fallback
+  const hit = grid.starts.findIndex(start => start >= mins)
+  return hit >= 0 ? hit : grid.slots
 }
 
 /** Convert "17:30" into the last slot index that ends at or before it. */
 export function slotEndingBefore(grid: TimeGrid, time: string, fallback: number): number {
-  const [h, m] = time.split(':').map(Number)
-  if (!Number.isFinite(h)) return fallback
-  const mins = h * 60 + (m || 0)
+  const mins = parseClock(time)
+  if (mins === null) return fallback
   let last = -1
-  for (let i = 0; i < grid.slots; i++) {
-    if (grid.starts[i] + (grid.durations[i] ?? grid.slotMinutes) <= mins) last = i
+  for (const [i, start] of grid.starts.entries()) {
+    if (start + slotDuration(grid, i) <= mins) last = i
   }
   return last
 }

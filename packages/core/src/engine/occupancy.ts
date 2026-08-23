@@ -174,7 +174,11 @@ function push(map: Map<string, Session[]>, key: string, s: Session) {
   }
   // keep slot-ascending so gap/consecutive checks can scan linearly
   let i = list.length
-  while (i > 0 && list[i - 1].slot > s.slot) i--
+  for (;;) {
+    const previous = i > 0 ? list[i - 1] : undefined
+    if (previous === undefined || previous.slot <= s.slot) break
+    i--
+  }
   list.splice(i, 0, s)
 }
 

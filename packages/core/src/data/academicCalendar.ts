@@ -38,6 +38,9 @@ const ISO = /^\d{4}-\d{2}-\d{2}$/
 export function parseDate(iso: string): number | null {
   if (typeof iso !== 'string' || !ISO.test(iso)) return null
   const [y, m, d] = iso.split('-').map(Number)
+  // The regex above already fixes the shape, so all three are present; the
+  // guard is what lets the compiler agree rather than a second validation.
+  if (y === undefined || m === undefined || d === undefined) return null
   const t = Date.UTC(y, m - 1, d)
   const back = new Date(t)
   // rejects 2026-02-30 and friends, which Date.UTC silently rolls forward
@@ -83,7 +86,8 @@ export function prettyDate(iso: string): string {
   const n = parseDate(iso)
   if (n === null) return iso
   const d = new Date(n * 86_400_000)
-  return `${d.getUTCDate()} ${MONTHS[d.getUTCMonth()].slice(0, 3)} ${d.getUTCFullYear()}`
+  const month = MONTHS[d.getUTCMonth()] ?? ''
+  return `${d.getUTCDate()} ${month.slice(0, 3)} ${d.getUTCFullYear()}`
 }
 
 /** "19 Aug 2026" or "19–23 Aug 2026" for a range. */
@@ -277,7 +281,7 @@ export function buildAcademicCalendar(cal: CalendarConfig, grid: TimeGrid): Acad
 
   const events = [...(cal.events ?? [])]
     .filter(e => e && typeof e.id === 'string' && isValidDate(e.start))
-    .sort((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name))
+    .toSorted((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name))
 
   const blackouts = weeklyBlackoutCells(events, grid.days, grid.slots)
   const impact = weekdayAttrition(cal, grid.days, grid.slots)

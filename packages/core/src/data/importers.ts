@@ -142,8 +142,10 @@ function indexColumns(header: string[], columns: Column[]) {
   return { at, missing, ignored }
 }
 
-const cell = (row: string[], at: Record<string, number>, key: string) =>
-  at[key] === undefined ? '' : (row[at[key]] ?? '').trim()
+const cell = (row: string[], at: Record<string, number>, key: string) => {
+  const column = at[key]
+  return column === undefined ? '' : (row[column] ?? '').trim()
+}
 
 const asInt = (v: string, fallback: number) => {
   const n = Number(v)
@@ -218,7 +220,8 @@ export function importStaff(text: string, config: SetupConfig): ImportResult<Sta
     }
   }
 
-  const { at, missing, ignored } = indexColumns(table[0], STAFF_COLUMNS)
+  const [header = [], ...body] = table
+  const { at, missing, ignored } = indexColumns(header, STAFF_COLUMNS)
   if (missing.length > 0) {
     return { rows, problems, ignoredColumns: ignored, missingColumns: missing }
   }
@@ -230,9 +233,8 @@ export function importStaff(text: string, config: SetupConfig): ImportResult<Sta
   )
   const seenCodes = new Set<string>()
 
-  for (let i = 1; i < table.length; i++) {
-    const line = i + 1
-    const row = table[i]
+  for (const [index, row] of body.entries()) {
+    const line = index + 2
     const name = cell(row, at, 'name')
     if (name === '') {
       problems.push({ line, message: 'No name — skipped.' })
@@ -304,8 +306,9 @@ export function importStaff(text: string, config: SetupConfig): ImportResult<Sta
       availableDays: [],
       blockedSlots: [],
       preferredShift: 'any',
-      preferredRoomKind: undefined,
-      homeBuildingId: undefined,
+      // `preferredRoomKind` and `homeBuildingId` are omitted rather than set to
+      // `undefined`: a CSV never carries them, and an absent key and a present
+      // undefined one are not the same thing to `in`, `Object.keys` or JSON.
       onSabbatical: false,
       needsAccessibleRoom: false,
       active: asFlag(cell(row, at, 'active'), true),
@@ -343,7 +346,8 @@ export function importRooms(text: string, config: SetupConfig): ImportResult<Roo
     }
   }
 
-  const { at, missing, ignored } = indexColumns(table[0], ROOM_COLUMNS)
+  const [header = [], ...body] = table
+  const { at, missing, ignored } = indexColumns(header, ROOM_COLUMNS)
   if (missing.length > 0) {
     return { rows, problems, ignoredColumns: ignored, missingColumns: missing }
   }
@@ -357,9 +361,8 @@ export function importRooms(text: string, config: SetupConfig): ImportResult<Roo
 
   const seenNames = new Set<string>()
 
-  for (let i = 1; i < table.length; i++) {
-    const line = i + 1
-    const row = table[i]
+  for (const [index, row] of body.entries()) {
+    const line = index + 2
     const name = cell(row, at, 'name')
     if (name === '') {
       problems.push({ line, message: 'No room name — skipped.' })
@@ -467,7 +470,8 @@ export function importCourses(text: string, config: SetupConfig): ImportResult<C
     }
   }
 
-  const { at, missing, ignored } = indexColumns(table[0], COURSE_COLUMNS)
+  const [header = [], ...body] = table
+  const { at, missing, ignored } = indexColumns(header, COURSE_COLUMNS)
   if (missing.length > 0) {
     return { rows, problems, ignoredColumns: ignored, missingColumns: missing }
   }
@@ -478,9 +482,8 @@ export function importCourses(text: string, config: SetupConfig): ImportResult<C
   )
   const seenCodes = new Set<string>()
 
-  for (let i = 1; i < table.length; i++) {
-    const line = i + 1
-    const row = table[i]
+  for (const [index, row] of body.entries()) {
+    const line = index + 2
     const code = cell(row, at, 'code')
     const name = cell(row, at, 'name')
     if (code === '' || name === '') {

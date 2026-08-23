@@ -50,8 +50,11 @@ function loadState(): WindowState {
     return {
       width: Math.max(MIN_WIDTH, Number(parsed.width) || DEFAULT_STATE.width),
       height: Math.max(MIN_HEIGHT, Number(parsed.height) || DEFAULT_STATE.height),
-      x: typeof parsed.x === 'number' ? parsed.x : undefined,
-      y: typeof parsed.y === 'number' ? parsed.y : undefined,
+      // Position is spread in only when it was saved. An explicit `undefined`
+      // would be a different thing to Electron's own options type, and to the
+      // `'x' in state` test that decides whether to let the OS place the window.
+      ...(typeof parsed.x === 'number' ? { x: parsed.x } : {}),
+      ...(typeof parsed.y === 'number' ? { y: parsed.y } : {}),
       maximized: Boolean(parsed.maximized),
     }
   } catch {
@@ -89,8 +92,8 @@ function createWindow() {
   mainWindow = new BrowserWindow({
     width: state.width,
     height: state.height,
-    x: state.x,
-    y: state.y,
+    ...(state.x === undefined ? {} : { x: state.x }),
+    ...(state.y === undefined ? {} : { y: state.y }),
     minWidth: MIN_WIDTH,
     minHeight: MIN_HEIGHT,
     show: false,
@@ -267,9 +270,8 @@ ipcMain.handle('file:open', async (_event, filters: { name: string; extensions: 
       filters,
       properties: ['openFile'],
     })
-    if (result.canceled || result.filePaths.length === 0) return { ok: false, canceled: true }
-
     const path = result.filePaths[0]
+    if (result.canceled || path === undefined) return { ok: false, canceled: true }
     if (!existsSync(path)) return { ok: false, error: 'That file no longer exists' }
     const data = await readFile(path, 'utf-8')
     return { ok: true, data, path }
@@ -326,7 +328,10 @@ ipcMain.on('assistant:chat', async (event, payload: ChatPayload) => {
   const controller = new AbortController()
   chatAborts.set(requestId, controller)
 
-  const send = (channel: string, data: unknown) => {
+  // Named `reply`, not `send`: the module-level `send` broadcasts menu actions
+  // to the window, and shadowing it here made two very different channels look
+  // like the same call.
+  const reply = (channel: string, data: unknown) => {
     if (!event.sender.isDestroyed()) event.sender.send(channel, data)
   }
 
@@ -348,7 +353,7 @@ ipcMain.on('assistant:chat', async (event, payload: ChatPayload) => {
     })
 
     if (!res.ok || !res.body) {
-      send('assistant:error', { requestId, message: `Assistant request failed (${res.status})` })
+      reply('assistant:error', { requestId, message: `Assistant request failed (${res.status})` })
       return
     }
 
@@ -368,16 +373,16 @@ ipcMain.on('assistant:chat', async (event, payload: ChatPayload) => {
         try {
           const chunk = JSON.parse(trimmed) as { message?: { content?: string } }
           const piece = chunk.message?.content
-          if (piece) send('assistant:chunk', { requestId, text: piece })
+          if (piece) reply('assistant:chunk', { requestId, text: piece })
         } catch {
           // partial line; it completes on the next read
         }
       }
     }
-    send('assistant:done', { requestId })
+    reply('assistant:done', { requestId })
   } catch (error) {
     const aborted = error instanceof Error && error.name === 'AbortError'
-    send(aborted ? 'assistant:done' : 'assistant:error', {
+    reply(aborted ? 'assistant:done' : 'assistant:error', {
       requestId,
       message: error instanceof Error ? error.message : String(error),
     })
@@ -408,14 +413,16 @@ if (!app.requestSingleInstanceLock()) {
     mainWindow.focus()
   })
 
-  app.whenReady().then(() => {
+  const start = async () => {
+    await app.whenReady()
     buildMenu()
     createWindow()
 
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow()
     })
-  })
+  }
+  void start()
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit()

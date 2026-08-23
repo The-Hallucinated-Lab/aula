@@ -24,7 +24,14 @@ delete its row here.
 | `import/no-unassigned-import`           | 2                 | Bare CSS imports — legitimate here; the rule is kept visible rather than switched off so a genuine unassigned module import still shows up.                                | never (documented exception) |
 | `jsx-a11y/*`                            | 26                | The whole accessibility pass is one coherent job.                                                                                                                          | M5 · accessibility           |
 
-Rules already at `error` and clean as of M1: everything in `correctness` and
-`suspicious`, plus `typescript/no-explicit-any`, `eqeqeq`, the three
-code-injection rules, `unicorn/no-empty-file` and
-`unicorn/require-post-message-target-origin`.
+## Promoted so far
+
+**M1** — everything in `correctness` and `suspicious`, plus
+`typescript/no-explicit-any`, `eqeqeq`, the three code-injection rules,
+`unicorn/no-empty-file` and `unicorn/require-post-message-target-origin`.
+
+**M2** — `unicorn/no-array-sort`, `eslint/no-shadow`, `promise/always-return`
+and `react/set-state-in-effect`. The shadowing class was worth the most: renaming
+the inner `staff` in `solver.ts` turned up a candidate being built from the
+enclosing `string[]` rather than the `Staff` it looked like, which only
+type-checked because the shadow hid it.

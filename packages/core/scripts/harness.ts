@@ -1494,10 +1494,14 @@ let junkOk = true
 let junkDetail = ''
 for (const input of junkInputs) {
   try {
-    const cfg = normaliseConfig(input)
-    generateInstitution(cfg)
-    summarise(cfg)
-    if (cfg.departments.length === 0 || cfg.programs.length === 0 || !cfg.overrides) {
+    const recovered = normaliseConfig(input)
+    generateInstitution(recovered)
+    summarise(recovered)
+    if (
+      recovered.departments.length === 0 ||
+      recovered.programs.length === 0 ||
+      !recovered.overrides
+    ) {
       junkOk = false
       junkDetail = `empty result for ${JSON.stringify(input)?.slice(0, 40)}`
     }

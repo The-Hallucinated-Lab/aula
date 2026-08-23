@@ -82,7 +82,7 @@ const asDayList = (v: unknown): number[] =>
         .map(d => Math.trunc(asNumber(d, -1)))
         .filter(d => d >= 0 && d <= 6),
     ),
-  ].sort((a, b) => a - b)
+  ].toSorted((a, b) => a - b)
 
 /** A `yyyy-mm-dd` date; anything else falls back. */
 const asDate = (v: unknown, fallback: string): string =>
@@ -191,7 +191,7 @@ function normaliseEvents(v: unknown, legacyHolidays: string[]): CalendarEvent[] 
     })
   }
 
-  return out.sort((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name))
+  return out.toSorted((a, b) => a.start.localeCompare(b.start) || a.name.localeCompare(b.name))
 }
 
 function normaliseCampuses(v: unknown): CampusConfig[] {
@@ -287,7 +287,9 @@ function rootHierarchy(faculties: FacultyConfig[], schools: SchoolConfig[]) {
       id: FALLBACK_SCHOOL_ID,
       code: 'GEN',
       name: 'General School',
-      faculty: faculties[0].id,
+      // The block above guarantees at least one faculty; the fallback id keeps
+      // that guarantee readable instead of asserted.
+      faculty: faculties[0]?.id ?? FALLBACK_FACULTY_ID,
     })
   }
 }
@@ -361,7 +363,7 @@ function normaliseRoomGroups(v: unknown, buildings: BuildingConfig[]): RoomGroup
       capacity: Math.max(1, Math.trunc(asNumber(g.capacity, 60))),
       turnoverMinutes: Math.max(0, asNumber(g.turnoverMinutes, 0)),
       features: asStringList(g.features),
-      specialisation: typeof g.specialisation === 'string' ? g.specialisation : undefined,
+      ...(typeof g.specialisation === 'string' ? { specialisation: g.specialisation } : {}),
     }
   })
   return list.length > 0
@@ -488,15 +490,17 @@ function normaliseOverrides(
           ['any', 'morning', 'afternoon', 'evening'] as const,
           'any',
         ),
-        preferredRoomKind:
-          typeof f.preferredRoomKind === 'string' &&
-          (ROOM_KINDS as readonly string[]).includes(f.preferredRoomKind)
-            ? (f.preferredRoomKind as RoomKind)
-            : undefined,
-        homeBuildingId:
-          typeof f.homeBuildingId === 'string' && buildingIds.has(f.homeBuildingId)
-            ? f.homeBuildingId
-            : undefined,
+        /* Spread in only when the saved project carried a usable value. An
+           unrecognised room kind or a building that no longer exists must drop
+           the key entirely, not keep it as `undefined`, or a round trip through
+           save/load would start reporting a preference the user never set. */
+        ...(typeof f.preferredRoomKind === 'string' &&
+        (ROOM_KINDS as readonly string[]).includes(f.preferredRoomKind)
+          ? { preferredRoomKind: f.preferredRoomKind as RoomKind }
+          : {}),
+        ...(typeof f.homeBuildingId === 'string' && buildingIds.has(f.homeBuildingId)
+          ? { homeBuildingId: f.homeBuildingId }
+          : {}),
         onSabbatical: asBool(f.onSabbatical, false),
         // absent means a project saved before the flag existed: everyone was current
         active: asBool(f.active, true),
@@ -652,7 +656,7 @@ function normaliseCustom(v: unknown): CustomConstraint[] {
 
     out.push({
       ...(c as unknown as CustomConstraint),
-      scope: { kind, id: typeof scope.id === 'string' ? scope.id : undefined },
+      scope: { kind, ...(typeof scope.id === 'string' ? { id: scope.id } : {}) },
     })
   }
   return out
