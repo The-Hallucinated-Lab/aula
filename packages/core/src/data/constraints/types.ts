@@ -164,6 +164,7 @@ export const RULE_KEYS = [
   'wellnessHour',
   'gateCurfew',
   'solveTimeLimit',
+  /* aula:cli:rule-keys */
 ] as const
 
 export type RuleKey = (typeof RULE_KEYS)[number]

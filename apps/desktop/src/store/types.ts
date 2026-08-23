@@ -135,6 +135,8 @@ export interface AppState {
   toProjectFile: () => ProjectFile
   loadProjectFile: (file: ProjectFile) => Promise<void>
   log: (kind: ActivityEntry['kind'], text: string) => void
+
+  /* aula:cli:state-actions */
 }
 
 /**

@@ -32,6 +32,7 @@ export const en = {
     scenarios: 'Scenarios',
     constraints: 'Constraints',
     assistant: 'Assistant',
+    /* aula:cli:nav-keys */
   },
 
   theme: {

@@ -14,6 +14,7 @@ import { calendarActions } from './slices/calendar'
 import { customRulesActions } from './slices/custom-rules'
 import { constraintsActions } from './slices/constraints'
 import { projectFileActions } from './slices/project-file'
+/* aula:cli:slice-imports */
 
 /**
  * The application store.
@@ -69,6 +70,7 @@ export const useApp = create<AppState>((set, get) => ({
   ...customRulesActions(set, get), // institution-specific rules
   ...constraintsActions(set, get), // constraints
   ...projectFileActions(set, get), // io
+  /* aula:cli:slices */
 }))
 
 export { buildDefaultStates, mergeStates }

@@ -1,0 +1,17 @@
+{
+  "name": "@aula/cli",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "description": "Scaffolding for Aula — generates code that already conforms to the architecture, and registers it where it has to be registered.",
+  "bin": {
+    "aula": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0"
+  }
+}

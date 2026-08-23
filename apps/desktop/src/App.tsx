@@ -12,6 +12,10 @@ import { Calendar } from './pages/Calendar'
 import { Scenarios } from './pages/Scenarios'
 import { Constraints } from './pages/Constraints'
 import { Assistant } from './pages/Assistant'
+/* The comment below is an anchor for `npm run new`. A generator inserts above
+   it rather than pattern-matching this file, so moving or deleting it is a
+   loud failure instead of a silently unregistered screen. */
+/* aula:cli:page-imports */
 
 /**
  * Routes live inside their own error boundary, keyed on the path: a page that
@@ -37,6 +41,7 @@ function Pages() {
           <Route path="/scenarios" element={<Scenarios />} />
           <Route path="/constraints" element={<Constraints />} />
           <Route path="/assistant" element={<Assistant />} />
+          {/* aula:cli:routes */}
           <Route path="*" element={<Overview />} />
         </Routes>
       </ErrorBoundary>

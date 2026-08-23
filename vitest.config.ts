@@ -27,6 +27,17 @@ export default defineConfig({
         },
       },
       {
+        // The scaffolding CLI. Node, no DOM, and it runs from TypeScript
+        // source without a build — which is only possible because
+        // `erasableSyntaxOnly` is enforced repo-wide.
+        test: {
+          name: 'cli',
+          root: 'tools/cli',
+          environment: 'node',
+          include: ['tests/**/*.test.ts'],
+        },
+      },
+      {
         // The main process is Node, not a document. Keeping it a separate
         // project means a test here cannot accidentally lean on a DOM the real
         // runtime does not have.
@@ -42,7 +53,12 @@ export default defineConfig({
       provider: 'v8',
       reportsDirectory: 'coverage',
       reporter: ['text-summary', 'json-summary', 'html'],
-      include: ['packages/core/src/**', 'apps/desktop/src/**', 'apps/desktop/electron/**'],
+      include: [
+        'packages/core/src/**',
+        'apps/desktop/src/**',
+        'apps/desktop/electron/**',
+        'tools/cli/src/**',
+      ],
       exclude: ['**/*.test.*', '**/*.d.ts'],
     },
   },

@@ -29,6 +29,7 @@
     "i18n:report": "node tools/scripts/i18n-report.mjs",
     "lint": "oxlint",
     "lint:fix": "oxlint --fix",
+    "new": "node tools/cli/src/index.ts new",
     "package": "npm run package --workspace @aula/desktop",
     "prepare": "node tools/scripts/install-git-hooks.mjs",
     "release:dry": "npx semantic-release --dry-run --no-ci",

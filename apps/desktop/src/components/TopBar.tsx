@@ -30,6 +30,7 @@ const NAV = [
   { to: '/scenarios', key: 'nav.scenarios' },
   { to: '/constraints', key: 'nav.constraints' },
   { to: '/assistant', key: 'nav.assistant' },
+  /* aula:cli:nav */
 ] as const
 
 export function TopBar() {

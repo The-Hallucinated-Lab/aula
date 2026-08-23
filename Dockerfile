@@ -32,6 +32,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY packages/core/package.json ./packages/core/
 COPY apps/desktop/package.json ./apps/desktop/
+# The CLI is a developer tool this image never runs, but it is a workspace, so
+# `npm ci` validates it against the lockfile and fails without its manifest.
+COPY tools/cli/package.json ./tools/cli/
 COPY tools/scripts/install-git-hooks.mjs ./tools/scripts/
 
 # `ci`, not `install`: the lockfile is the input.
