@@ -106,7 +106,7 @@ export function Calendar() {
         }
       />
 
-      <main className="page">
+      <div className="page">
         <StaleNotice />
 
         {/* ---------------- term window ---------------- */}
@@ -207,6 +207,7 @@ export function Calendar() {
                         {DAY_SHORT[row.day]}
                       </span>
                       <Meter
+                        ariaLabel={`${DAY_NAMES[row.day]} — ${row.teachingDates} teaching dates`}
                         value={row.teachingDates / best}
                         tone={
                           row.teachingDates === 0
@@ -336,7 +337,7 @@ export function Calendar() {
             </div>
           </div>
         </Section>
-      </main>
+      </div>
 
       {editing && (
         <EventDialog

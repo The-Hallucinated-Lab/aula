@@ -71,7 +71,7 @@ export class ErrorBoundary extends Component<Props, State> {
     if (!error) return this.props.children
 
     return (
-      <main className="page fade-in">
+      <div className="page fade-in">
         <div className="card card-pad" style={{ maxWidth: 780, margin: '48px auto' }}>
           <div className="hero-eyebrow">Something in this screen failed</div>
           <h2
@@ -119,7 +119,7 @@ export class ErrorBoundary extends Component<Props, State> {
             </button>
           </div>
         </div>
-      </main>
+      </div>
     )
   }
 }

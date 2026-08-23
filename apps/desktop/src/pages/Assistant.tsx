@@ -210,7 +210,7 @@ export function Assistant() {
         }
       />
 
-      <main className="page">
+      <div className="page">
         {mode === 'offline' && (
           <Callout tone="info" title="Answering directly from the schedule">
             {probeError} Answers still come from the solved timetable — they are read out of the
@@ -268,7 +268,7 @@ export function Assistant() {
             )}
           </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }

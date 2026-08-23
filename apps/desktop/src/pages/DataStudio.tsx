@@ -50,13 +50,13 @@ export function DataStudio() {
         }
       />
 
-      <main className="page">
+      <div className="page">
         <StaleNotice />
         {tab === 'staff' && <StaffTab />}
         {tab === 'rooms' && <RoomsTab />}
         {tab === 'courses' && <CoursesTab />}
         {tab === 'cohorts' && <CohortsTab />}
-      </main>
+      </div>
     </div>
   )
 }

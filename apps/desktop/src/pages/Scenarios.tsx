@@ -37,7 +37,7 @@ export function Scenarios() {
         }
       />
 
-      <main className="page">
+      <div className="page">
         <StaleNotice />
         {!setupComplete && (
           <Callout tone="warn" title="Run setup first">
@@ -117,7 +117,7 @@ export function Scenarios() {
             </p>
           </Section>
         )}
-      </main>
+      </div>
     </div>
   )
 }
@@ -129,7 +129,7 @@ function Weight({ label, value }: { label: string; value: number }) {
         <span className="muted">{label}</span>
         <span className="mono tnum">{value}/5</span>
       </div>
-      <Meter value={value / 5} />
+      <Meter ariaLabel={`${label}, ${value} of 5`} value={value / 5} />
     </div>
   )
 }

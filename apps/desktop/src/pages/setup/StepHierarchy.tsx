@@ -35,7 +35,9 @@ export function StepHierarchy({ config, patch }: StepProps) {
               <tr>
                 <th style={{ width: 110 }}>Code</th>
                 <th>Name</th>
-                <th style={{ width: 70 }} />
+                <th style={{ width: 70 }}>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -111,7 +113,9 @@ export function StepHierarchy({ config, patch }: StepProps) {
                 <th style={{ width: 110 }}>Code</th>
                 <th>Name</th>
                 <th style={{ width: 220 }}>Faculty</th>
-                <th style={{ width: 70 }} />
+                <th style={{ width: 70 }}>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -202,7 +206,9 @@ export function StepHierarchy({ config, patch }: StepProps) {
                 <th style={{ width: 110 }}>Code</th>
                 <th>Name</th>
                 <th style={{ width: 220 }}>School</th>
-                <th style={{ width: 70 }} />
+                <th style={{ width: 70 }}>
+                  <span className="sr-only">Actions</span>
+                </th>
               </tr>
             </thead>
             <tbody>

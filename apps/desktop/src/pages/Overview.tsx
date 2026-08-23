@@ -44,7 +44,7 @@ export function Overview() {
           }
           desc="Enter your real numbers — students, programmes, classrooms, staff — switch on the constraints that apply to you, and generate. Every rejection is traced back to the rule that caused it."
         />
-        <main className="page">
+        <div className="page">
           <Empty
             title={solving ? phase || 'Solving…' : 'No timetable generated yet'}
             desc={`Your configuration currently describes ${summary.students.toLocaleString()} students across ${summary.cohorts} cohorts, ${summary.rooms} rooms and ${summary.staffTotal} staff.`}
@@ -54,7 +54,7 @@ export function Overview() {
               </button>
             }
           />
-        </main>
+        </div>
       </div>
     )
   }
@@ -81,7 +81,7 @@ export function Overview() {
         }
       />
 
-      <main className="page">
+      <div className="page">
         <StaleNotice />
         {lastError && (
           <Callout tone="danger" title="Last solve failed">
@@ -282,6 +282,7 @@ export function Overview() {
                         <span className="mono tnum muted">{load} h</span>
                       </div>
                       <Meter
+                        ariaLabel={`${d.code} teaching load, ${load} hours`}
                         value={load / peak}
                         tone={SERIES[d.colorIndex % SERIES.length] ?? ''}
                       />
@@ -307,7 +308,7 @@ export function Overview() {
             </Section>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }

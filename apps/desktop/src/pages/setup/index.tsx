@@ -145,16 +145,16 @@ function SetupWizard({ mode }: { mode: SetupMode }) {
       />
 
       {mode === 'institution' && !unlocked && (
-        <main className="page" style={{ paddingBottom: 0 }}>
+        <div className="page" style={{ paddingBottom: 0 }}>
           <Callout tone="info" title="These settings are locked">
             They describe the institution itself and everything else is built from them. Unlock only
             when the estate, the hierarchy or the shape of the teaching day has actually changed.
             Routine work belongs in <Link to="/setup">this term's setup</Link>.
           </Callout>
-        </main>
+        </div>
       )}
 
-      <main className="page">
+      <div className="page">
         <div className="wizard">
           <nav className="wizard-rail" aria-label="Setup steps">
             {STEPS.map((s, i) => (
@@ -253,7 +253,7 @@ function SetupWizard({ mode }: { mode: SetupMode }) {
             </div>
           </div>
         </div>
-      </main>
+      </div>
 
       {/* The review was explicit that institution changes must not save as you
           type, and that saving should ask. This bar appears only once there is

@@ -6,5 +6,5 @@
     "jsx": "react-jsx",
     "allowArbitraryExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "tests"]
 }

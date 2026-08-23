@@ -69,8 +69,8 @@
   outline-offset: -3px;
 }
 .caption-close:hover {
-  background: #c42b1c;
-  color: #fff;
+  background: var(--close-hover);
+  color: var(--on-status);
 }
 
 .engine-dot.busy {
@@ -254,7 +254,7 @@
 }
 .callout-ok .callout-mark {
   background: var(--ok);
-  color: #fff;
+  color: var(--on-status);
 }
 .callout-warn {
   background: var(--warn-soft);
@@ -262,7 +262,7 @@
 }
 .callout-warn .callout-mark {
   background: var(--warn);
-  color: #fff;
+  color: var(--on-status);
 }
 .callout-danger {
   background: var(--danger-soft);
@@ -270,7 +270,7 @@
 }
 .callout-danger .callout-mark {
   background: var(--danger);
-  color: #fff;
+  color: var(--on-status);
 }
 .callout-info {
   background: var(--accent-wash);
@@ -1048,4 +1048,115 @@ button.chip:hover {
   color: var(--ink-3);
   line-height: 1.3;
   text-align: center;
+}
+
+/* ---------- theme control ---------- */
+
+/**
+ * Visually hidden, still announced.
+ *
+ * `display: none` and `visibility: hidden` both remove an element from the
+ * accessibility tree along with the layout. This keeps it in the tree and out
+ * of sight, which is what a label for an icon-only control needs.
+ */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+}
+
+.theme-option {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--ink-3);
+  font-size: 13px;
+  line-height: 1;
+  transition:
+    background 0.14s ease,
+    color 0.14s ease;
+}
+
+/* The radio itself carries the focus, so the label has to show it. */
+.theme-option input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+
+.theme-option:hover {
+  color: var(--ink);
+  background: var(--surface-3);
+}
+
+.theme-option.is-selected {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.theme-option:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* ---------- skip link ---------- */
+
+/**
+ * Off-screen until focused.
+ *
+ * Not `display: none`: a hidden link is not focusable, which defeats the point.
+ * It sits above the custom title bar's drag region so it is clickable as well
+ * as reachable by keyboard.
+ */
+.skip-link {
+  position: absolute;
+  top: -100px;
+  left: 12px;
+  z-index: 100;
+  padding: 10px 16px;
+  border-radius: var(--r-sm);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 600;
+  font-size: 13.5px;
+  text-decoration: none;
+  transition: top 0.12s ease;
+}
+
+.skip-link:focus {
+  top: 44px;
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+}
+
+/* The application-level main landmark. It owns no layout of its own — each
+   page still draws its own banner and `.page` body inside it. */
+.app-main {
+  display: block;
+}
+
+/* Moving focus to the landmark after the skip link must not draw a ring around
+   the entire page. */
+.app-main:focus {
+  outline: none;
 }

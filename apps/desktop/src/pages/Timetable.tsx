@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useApp, type SubstituteProposal } from '../store'
 import { Combobox, Empty, Hero, SERIES } from '../components/ui'
 import {
@@ -142,7 +142,7 @@ export function Timetable() {
           }
           desc="Describe your institution, then generate. The grid fills in and every drag is checked against the rules you enabled."
         />
-        <main className="page">
+        <div className="page">
           <Empty
             title={solving ? 'Solving…' : 'No timetable in memory'}
             desc={
@@ -156,7 +156,7 @@ export function Timetable() {
               </button>
             }
           />
-        </main>
+        </div>
       </div>
     )
   }
@@ -214,7 +214,7 @@ export function Timetable() {
         }
       />
 
-      <main className="page">
+      <div className="page">
         <StaleNotice />
         <div className="grid grid-main-side">
           <div className="card tt-wrap">
@@ -299,7 +299,7 @@ export function Timetable() {
             absences={absences}
           />
         </div>
-      </main>
+      </div>
 
       {proposals && (
         <SubstituteSheet
@@ -616,8 +616,28 @@ function SubstituteSheet(props: {
   onApply: () => void
 }) {
   const { data, institution } = props
+  const panel = useRef<HTMLDivElement>(null)
   const absent = institution.staff.find(f => f.id === data.staffId)
   const covered = data.items.filter(i => i.candidateId).length
+
+  /* Escape, and a click outside the panel. Both on the document, so the
+     backdrop stays a scrim rather than becoming an unlabelled control. */
+  const onClose = props.onClose
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose()
+    }
+    const onDown = (e: MouseEvent) => {
+      if (panel.current && !panel.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('keydown', onKey, true)
+    document.addEventListener('mousedown', onDown)
+    return () => {
+      document.removeEventListener('keydown', onKey, true)
+      document.removeEventListener('mousedown', onDown)
+    }
+  }, [onClose])
+
   if (!absent) return null
 
   /* Portalled for the same reason the staff and calendar dialogs are: the page
@@ -626,14 +646,18 @@ function SubstituteSheet(props: {
      scrolled to rather than over the viewport. */
   return (
     <Portal>
-      <div
-        className="overlay"
-        onClick={props.onClose}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Substitution proposals"
-      >
-        <div className="sheet" onClick={e => e.stopPropagation()}>
+      {/* The scrim is not the dialog. It carried `role="dialog"` and the close
+          handler together, which made the backdrop an interactive element with
+          no keyboard path and put the dialog role on something that is not the
+          dialog. The panel below is. */}
+      <div className="overlay">
+        <div
+          ref={panel}
+          className="sheet"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Substitution proposals"
+        >
           <div className="card-pad" style={{ paddingBottom: 12 }}>
             <div className="hero-eyebrow">Local repair</div>
             <h3 style={{ fontSize: 20, fontWeight: 800, letterSpacing: '-0.02em' }}>

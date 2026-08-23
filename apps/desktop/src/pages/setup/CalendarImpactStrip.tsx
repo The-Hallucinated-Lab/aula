@@ -43,6 +43,7 @@ export function CalendarImpactStrip() {
             {DAY_NAMES[row.day]}
           </span>
           <Meter
+            ariaLabel={`${DAY_NAMES[row.day]} — ${row.teachingDates} of ${row.totalDates} dates teaching`}
             value={row.totalDates > 0 ? row.teachingDates / best : 0}
             tone={row.lostDates > 0 ? 'var(--warn)' : 'var(--ok)'}
           />

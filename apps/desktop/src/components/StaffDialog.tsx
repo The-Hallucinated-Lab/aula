@@ -569,6 +569,7 @@ function BlockRow(props: {
             disabled={props.wholeDayOff}
             aria-pressed={off}
             className={`avail-cell ${off ? 'off' : ''}`}
+            aria-label={`${DAY_NAMES[props.day]} period ${slot + 1}`}
             title={`${DAY_NAMES[props.day]} period ${slot + 1}: ${off ? 'unavailable' : 'available'}`}
             onClick={() => props.onToggle(props.day, slot)}
           />

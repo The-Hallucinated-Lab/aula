@@ -3,6 +3,8 @@ import { Link, NavLink, useNavigate } from 'react-router-dom'
 import { useApp, type ProjectFile } from '../store'
 import { useToast } from './Toast'
 import { bridge, openText, saveText } from '../platform'
+import { ThemeToggle } from './ThemeToggle'
+import { useTranslation } from '../i18n'
 import {
   calendarCsv,
   constraintsCsv,
@@ -13,19 +15,25 @@ import {
 import { isImplemented } from '@aula/core/engine/rules'
 import type { RuleKey } from '@aula/core/data/constraints/types'
 
+/**
+ * The navigation, as translation keys rather than English.
+ *
+ * The route is the identity; the words on it are content.
+ */
 const NAV = [
-  { to: '/', label: 'Overview' },
-  { to: '/timetable', label: 'Timetable' },
-  { to: '/setup', label: 'Term setup' },
-  { to: '/institution', label: 'Institution' },
-  { to: '/data', label: 'Data' },
-  { to: '/calendar', label: 'Calendar' },
-  { to: '/scenarios', label: 'Scenarios' },
-  { to: '/constraints', label: 'Constraints' },
-  { to: '/assistant', label: 'Assistant' },
-]
+  { to: '/', key: 'nav.overview' },
+  { to: '/timetable', key: 'nav.timetable' },
+  { to: '/setup', key: 'nav.termSetup' },
+  { to: '/institution', key: 'nav.institution' },
+  { to: '/data', key: 'nav.data' },
+  { to: '/calendar', key: 'nav.calendar' },
+  { to: '/scenarios', key: 'nav.scenarios' },
+  { to: '/constraints', key: 'nav.constraints' },
+  { to: '/assistant', key: 'nav.assistant' },
+] as const
 
 export function TopBar() {
+  const { t } = useTranslation()
   const store = useApp()
   const toast = useToast()
   const navigate = useNavigate()
@@ -58,22 +66,22 @@ export function TopBar() {
       data: JSON.stringify(store.toProjectFile(), null, 2),
       filters: [{ name: 'Aula project', extensions: ['json'] }],
     })
-    if (res.ok) toast('Project saved', 'ok')
-    else if (!res.canceled) toast(res.error ?? 'Save failed', 'danger')
+    if (res.ok) toast(t('file.saved'), 'ok')
+    else if (!res.canceled) toast(res.error ?? t('file.saveFailed'), 'danger')
   }
 
   const doOpenProject = async () => {
     const res = await openText([{ name: 'Aula project', extensions: ['json'] }])
     if (!res.ok || !res.data) {
-      if (!res.canceled) toast(res.error ?? 'Could not open that file', 'danger')
+      if (!res.canceled) toast(res.error ?? t('file.openFailed'), 'danger')
       return
     }
     try {
       await store.loadProjectFile(JSON.parse(res.data) as ProjectFile)
-      toast('Project loaded', 'ok')
+      toast(t('file.loaded'), 'ok')
       navigate('/')
     } catch {
-      toast('That file is not a valid Aula project', 'danger')
+      toast(t('file.notAProject'), 'danger')
     }
   }
 
@@ -82,7 +90,7 @@ export function TopBar() {
   ) => {
     setMenuOpen(false)
     if (kind !== 'constraints' && kind !== 'calendar' && sessions.length === 0) {
-      toast('Generate a timetable first', 'danger')
+      toast(t('file.generateFirst'), 'danger')
       return
     }
     const map = {
@@ -188,46 +196,63 @@ export function TopBar() {
         <Link to="/" className="brand">
           <span className="brand-mark" aria-hidden>
             <svg width="16" height="16" viewBox="0 0 16 16">
-              <rect x="1" y="1" width="6" height="6" rx="1.6" fill="#FDFDFB" />
-              <rect x="9" y="1" width="6" height="6" rx="1.6" fill="#FDFDFB" opacity=".55" />
-              <rect x="1" y="9" width="6" height="6" rx="1.6" fill="#FDFDFB" opacity=".55" />
-              <rect x="9" y="9" width="6" height="6" rx="1.6" fill="#FDFDFB" opacity=".85" />
+              <rect x="1" y="1" width="6" height="6" rx="1.6" fill="var(--accent-ink)" />
+              <rect
+                x="9"
+                y="1"
+                width="6"
+                height="6"
+                rx="1.6"
+                fill="var(--accent-ink)"
+                opacity=".55"
+              />
+              <rect
+                x="1"
+                y="9"
+                width="6"
+                height="6"
+                rx="1.6"
+                fill="var(--accent-ink)"
+                opacity=".55"
+              />
+              <rect
+                x="9"
+                y="9"
+                width="6"
+                height="6"
+                rx="1.6"
+                fill="var(--accent-ink)"
+                opacity=".85"
+              />
             </svg>
           </span>
           <span>
-            <span className="brand-name">Aula</span>
+            <span className="brand-name">{t('app.name')}</span>
             <br />
-            <span className="brand-sub">Timetable Studio</span>
+            <span className="brand-sub">{t('app.tagline')}</span>
           </span>
         </Link>
 
-        <nav className="topnav" aria-label="Main">
+        <nav className="topnav" aria-label={t('nav.label')}>
           {NAV.map(n => (
             <NavLink key={n.to} to={n.to} end={n.to === '/'}>
-              {n.label}
+              {t(n.key)}
             </NavLink>
           ))}
         </nav>
 
         <div className="topbar-right">
+          <ThemeToggle />
           <span
             className={`engine-chip ${!solving && scheduleStale ? 'stale' : ''}`}
-            title={
-              solving
-                ? phase
-                : scheduleStale
-                  ? 'The institution changed after the last solve — generate again'
-                  : 'Solver idle'
-            }
+            title={solving ? phase : t(scheduleStale ? 'engine.staleTitle' : 'engine.idleTitle')}
           >
             <span
               className={`engine-dot ${solving ? 'busy' : ''} ${!solving && scheduleStale ? 'stale' : ''}`}
             />
             {solving
-              ? phase || 'Solving'
-              : scheduleStale
-                ? 'Timetable out of date'
-                : 'Engine ready'}
+              ? phase || t('engine.solving')
+              : t(scheduleStale ? 'engine.stale' : 'engine.ready')}
           </span>
 
           <div className="menu-wrap" ref={menuRef}>
@@ -237,7 +262,7 @@ export function TopBar() {
               aria-expanded={menuOpen}
               onClick={() => setMenuOpen(v => !v)}
             >
-              File ▾
+              {t('file.menu')} ▾
             </button>
             {menuOpen && (
               <div className="menu" role="menu">
@@ -248,7 +273,7 @@ export function TopBar() {
                     void doOpenProject()
                   }}
                 >
-                  Open project… <kbd>Ctrl O</kbd>
+                  {t('file.open')} <kbd>Ctrl O</kbd>
                 </button>
                 <button
                   role="menuitem"
@@ -257,7 +282,7 @@ export function TopBar() {
                     void doSaveProject()
                   }}
                 >
-                  Save project… <kbd>Ctrl S</kbd>
+                  {t('file.save')} <kbd>Ctrl S</kbd>
                 </button>
                 <div className="menu-sep" />
                 <button role="menuitem" onClick={() => exportFile('timetable')}>

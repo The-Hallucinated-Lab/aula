@@ -5,48 +5,11 @@
    ============================================================ */
 
 :root {
-  /* planes (light, warm, calm) */
-  --page: #f2f1ec;
-  --surface: #fcfcfa;
-  --surface-2: #f6f5f0;
-  --surface-3: #efeee8;
-
-  /* ink */
-  --ink: #1d2a24;
-  --ink-2: #5c6763;
-  --ink-3: #949c96;
-  --line: #e5e3da;
-  --line-soft: #edebe3;
-
-  /* brand */
-  --accent: #3e6b5e;
-  --accent-deep: #2f5348;
-  --accent-soft: #e2ece6;
-  --accent-wash: #eef4f0;
-  --accent-ink: #fdfdfb;
-
-  /* status */
-  --ok: #2e7d5b;
-  --ok-soft: #e1efe7;
-  --danger: #c05f52;
-  --danger-soft: #f7e6e2;
-  --warn: #b17d0e;
-  --warn-soft: #f6eeda;
-
-  /* validated categorical chart palette */
-  --series-1: #3f7dc0;
-  --series-2: #279e6e;
-  --series-3: #b17d0e;
-  --series-4: #7a6cc7;
-  --series-5: #c05f52;
-
-  /* geometry & depth */
+  /* Colour lives in themes.css. What remains here is geometry, type and
+     layout — the things that do not change between themes. */
   --r-lg: 20px;
   --r-md: 14px;
   --r-sm: 9px;
-  --shadow-1: 0 1px 2px rgba(29, 42, 36, 0.04), 0 10px 30px rgba(29, 42, 36, 0.06);
-  --shadow-2: 0 2px 6px rgba(29, 42, 36, 0.06), 0 18px 50px rgba(29, 42, 36, 0.12);
-  --shadow-lift: 0 4px 10px rgba(29, 42, 36, 0.1), 0 24px 60px rgba(29, 42, 36, 0.16);
 
   --font: 'Manrope', 'Segoe UI', system-ui, sans-serif;
   --mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
@@ -104,7 +67,7 @@ textarea {
   position: sticky;
   top: 0;
   z-index: 50;
-  background: rgba(252, 252, 250, 0.86);
+  background: rgba(var(--surface-rgb), 0.86);
   backdrop-filter: blur(14px);
   border-bottom: 1px solid var(--line);
 }
@@ -130,7 +93,7 @@ textarea {
   background: var(--accent);
   display: grid;
   place-items: center;
-  box-shadow: 0 6px 16px rgba(62, 107, 94, 0.35);
+  box-shadow: 0 6px 16px rgba(var(--heat), 0.35);
 }
 .brand-mark svg {
   display: block;
@@ -224,7 +187,7 @@ textarea {
 .btn-primary {
   background: var(--accent);
   color: var(--accent-ink);
-  box-shadow: 0 8px 20px rgba(62, 107, 94, 0.3);
+  box-shadow: 0 8px 20px rgba(var(--heat), 0.3);
 }
 .btn-primary:hover {
   background: var(--accent-deep);
@@ -243,11 +206,11 @@ textarea {
   color: var(--accent-deep);
 }
 .btn-soft:hover {
-  background: #d5e3da;
+  background: var(--accent-soft-hover);
 }
 .btn-danger-soft {
   background: var(--danger-soft);
-  color: #96453a;
+  color: var(--danger-ink);
 }
 .btn[disabled] {
   opacity: 0.45;
@@ -258,8 +221,8 @@ textarea {
 
 .hero {
   background:
-    radial-gradient(1200px 220px at 12% 120%, rgba(62, 107, 94, 0.09), transparent 70%),
-    linear-gradient(180deg, var(--surface), rgba(252, 252, 250, 0.4));
+    radial-gradient(1200px 220px at 12% 120%, rgba(var(--heat), 0.09), transparent 70%),
+    linear-gradient(180deg, var(--surface), rgba(var(--surface-rgb), 0.4));
   border-bottom: 1px solid var(--line-soft);
 }
 .hero-inner {
@@ -494,7 +457,7 @@ textarea {
 }
 .chip-danger {
   background: var(--danger-soft);
-  color: #96453a;
+  color: var(--danger-ink);
 }
 .chip-accent {
   background: var(--accent-soft);
@@ -885,7 +848,7 @@ textarea {
   background: var(--accent);
   color: var(--accent-ink);
   border-bottom-right-radius: 5px;
-  box-shadow: 0 6px 16px rgba(62, 107, 94, 0.25);
+  box-shadow: 0 6px 16px rgba(var(--heat), 0.25);
 }
 .msg-ai {
   align-self: flex-start;
@@ -1001,7 +964,7 @@ textarea {
   max-width: min(560px, 90vw);
 }
 .toast.danger {
-  background: #7e3a30;
+  background: var(--toast-danger);
 }
 .toast.ok {
   background: var(--accent-deep);
@@ -1228,7 +1191,7 @@ textarea {
   box-shadow: 0 -6px 20px rgba(20, 28, 25, 0.07);
 }
 .draft-mark {
-  color: var(--warn, #b8860b);
+  color: var(--warn);
   font-size: 11px;
 }
 .draft-text {

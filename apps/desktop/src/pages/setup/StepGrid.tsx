@@ -140,7 +140,9 @@ export function StepGrid({ config, patch }: StepProps) {
                   <th>Name</th>
                   <th style={{ width: 130 }}>Starts</th>
                   <th style={{ width: 130 }}>Ends</th>
-                  <th style={{ width: 70 }} />
+                  <th style={{ width: 70 }}>
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
               <tbody>

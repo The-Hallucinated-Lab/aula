@@ -74,16 +74,32 @@ export function Dialog(props: {
     return () => document.removeEventListener('keydown', onKey, true)
   }, [props])
 
+  /* Close on a click outside the panel.
+   *
+   * On the document rather than on the backdrop element. Two reasons: a
+   * backdrop carrying a mouse handler is an interactive element with no role
+   * and no keyboard path, and a handler on the backdrop also fires when a drag
+   * begins inside the panel — selecting text and releasing past the edge closed
+   * the dialog and discarded the edit. */
+  useEffect(() => {
+    const onDown = (e: MouseEvent) => {
+      if (panel.current && !panel.current.contains(e.target as Node)) props.onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [props])
+
   return (
     <Portal>
-      <div className="overlay" onMouseDown={props.onClose}>
+      {/* Purely a scrim. Dismissal is Escape and the outside-click listener
+          above, both of which work without the backdrop being interactive. */}
+      <div className="overlay">
         <div
           ref={panel}
           className={`sheet ${props.size === 'wide' ? 'sheet-wide' : ''}`}
           role="dialog"
           aria-modal="true"
           aria-label={props.title}
-          onMouseDown={e => e.stopPropagation()}
         >
           <div className="dialog-head">
             <div style={{ minWidth: 0 }}>

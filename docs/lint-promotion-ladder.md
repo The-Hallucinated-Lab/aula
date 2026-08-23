@@ -47,6 +47,15 @@ warning nobody reads.
 `typescript/no-explicit-any`, `eqeqeq`, the three code-injection rules,
 `unicorn/no-empty-file` and `unicorn/require-post-message-target-origin`.
 
+**M5** — `jsx-a11y/alt-text`, `aria-props`, `aria-role`,
+`role-has-required-aria-props`, `anchor-is-valid`, `tabindex-no-positive`,
+`control-has-associated-label`, `no-static-element-interactions` and
+`no-noninteractive-element-interactions`. Four of the class were switched off
+instead, with reasons, in `docs/audit-accessibility-performance.md`: they cannot
+see through a component boundary or recognise an `aria-activedescendant`
+pattern, and axe — which reads the real accessibility tree — reports none of
+them.
+
 **M4** — `react/no-array-index-key`, `unicorn/prefer-add-event-listener`,
 `unicorn/no-useless-fallback-in-spread`, `unicorn/consistent-function-scoping`
 and `unicorn/prefer-array-find`. The index-key class was not cosmetic: the

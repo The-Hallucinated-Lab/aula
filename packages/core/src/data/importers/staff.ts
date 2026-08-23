@@ -23,7 +23,7 @@ import { EMPLOYMENT_TYPES, STAFF_RANKS, type EmploymentType, type StaffRank } fr
 import { type StaffRecord } from '../records'
 import {
   asFlag,
-  asInt,
+  readInt,
   asList,
   canonical,
   cell,
@@ -119,8 +119,33 @@ export function importStaff(text: string, config: SetupConfig): ImportResult<Sta
     }
 
     const rank = oneOf(cell(row, at, 'rank'), STAFF_RANKS, 'Assistant Professor' as StaffRank)
-    const maxPerWeek = asInt(cell(row, at, 'maxPerWeek'), 18)
-    const maxPerDay = asInt(cell(row, at, 'maxPerDay'), 5)
+
+    /* `readInt`, not `asInt`. The two differ on exactly the case that matters:
+       `asInt` cannot tell "blank, so use the default" from "somebody typed
+       *sixty*", and silently returns the default for both. A weekly cap that
+       quietly becomes 18 because of a typo is the kind of successful-looking
+       import this module exists to prevent — the rooms importer already read
+       its numbers this way; the roster did not. */
+    const rawWeek = cell(row, at, 'maxPerWeek')
+    const weekly = readInt(rawWeek, 18)
+    if (weekly.bad || weekly.value <= 0) {
+      problems.push({
+        line,
+        message: `${name}: weekly cap "${rawWeek}" is not a usable number — assumed 18.`,
+      })
+    }
+    const maxPerWeek = weekly.bad || weekly.value <= 0 ? 18 : weekly.value
+
+    const rawDay = cell(row, at, 'maxPerDay')
+    const daily = readInt(rawDay, 5)
+    if (daily.bad || daily.value <= 0) {
+      problems.push({
+        line,
+        message: `${name}: daily cap "${rawDay}" is not a usable number — assumed 5.`,
+      })
+    }
+    const maxPerDay = daily.bad || daily.value <= 0 ? 5 : daily.value
+
     if (maxPerDay > maxPerWeek) {
       problems.push({
         line,

@@ -108,7 +108,7 @@ export function Constraints() {
         }
       />
 
-      <main className="page">
+      <div className="page">
         <div className="grid grid-4" style={{ marginBottom: 22 }}>
           <div className="card stat">
             <span className="stat-label">In the catalogue</span>
@@ -289,7 +289,7 @@ export function Constraints() {
             </div>
           </div>
         </Section>
-      </main>
+      </div>
     </div>
   )
 }

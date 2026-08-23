@@ -221,8 +221,18 @@ export function Empty(props: { title: string; desc?: string; action?: ReactNode 
   )
 }
 
-export function Meter(props: { value: number; label?: string; tone?: string }) {
+export function Meter(props: {
+  value: number
+  label?: string | undefined
+  tone?: string | undefined
+  /** What the bar measures, when no visible `label` says so. */
+  ariaLabel?: string | undefined
+}) {
   const pct = Math.max(0, Math.min(100, Math.round(props.value * 100)))
+  /* `role="meter"` with no name announces "60 percent" and nothing else —
+     which of the twenty-three bars on the Scenarios screen is anyone's guess.
+     The visible label is used when there is one; otherwise the caller must say. */
+  const name = props.label ?? props.ariaLabel ?? 'Proportion'
   return (
     <div>
       {props.label && (
@@ -237,9 +247,11 @@ export function Meter(props: { value: number; label?: string; tone?: string }) {
         className="bar-track"
         style={{ height: 8 }}
         role="meter"
+        aria-label={name}
         aria-valuenow={pct}
         aria-valuemin={0}
         aria-valuemax={100}
+        aria-valuetext={`${pct}%`}
       >
         <div
           className="bar-fill"

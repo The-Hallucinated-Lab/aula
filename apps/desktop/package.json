@@ -4,7 +4,7 @@
   "private": true,
   "version": "1.0.0",
   "license": "UNLICENSED",
-  "description": "Aula \u2014 a constraint-driven university timetable planner for Windows",
+  "description": "Aula — a constraint-driven university timetable planner for Windows",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -21,8 +21,10 @@
     "@aula/core": "*",
     "@fontsource/jetbrains-mono": "5.3.0",
     "@fontsource/manrope": "5.3.0",
+    "i18next": "26.4.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
+    "react-i18next": "17.0.12",
     "react-router-dom": "7.18.2",
     "zod": "4.4.3",
     "zustand": "5.0.15"
@@ -32,6 +34,7 @@
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
     "@vitejs/plugin-react": "6.1.0",
+    "axe-core": "^4.13.0",
     "electron": "43.4.1",
     "electron-builder": "26.15.3",
     "happy-dom": "^20.11.6",

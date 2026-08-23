@@ -109,7 +109,10 @@ export function RoomsTab() {
                                 </span>
                               </span>
                               <span style={{ width: 120 }}>
-                                <Meter value={used / weekSlots} />
+                                <Meter
+                                  ariaLabel={`${rec.name} utilisation`}
+                                  value={used / weekSlots}
+                                />
                               </span>
                               <span
                                 className={`domain-caret ${expanded ? 'open' : ''}`}
@@ -379,6 +382,10 @@ function AvailRow(props: {
             disabled={props.closed}
             aria-pressed={off}
             className={`avail-cell ${off ? 'off' : ''}`}
+            /* `title` alone is a tooltip: several screen readers skip it and a
+               keyboard user never sees it. The same text as `aria-label` is
+               what makes a grid of forty unlabelled cells navigable. */
+            aria-label={`${DAY_NAMES[props.day]} slot ${slot + 1}`}
             title={`${DAY_NAMES[props.day]} slot ${slot + 1}: ${off ? 'unavailable' : 'available'}`}
             onClick={() => props.onToggle(props.day, slot)}
           />

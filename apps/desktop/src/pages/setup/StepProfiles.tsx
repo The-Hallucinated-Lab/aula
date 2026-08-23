@@ -38,7 +38,9 @@ export function StepProfiles({ config, patch }: StepProps) {
               <th>Name</th>
               <th style={{ width: 160 }}>Intake</th>
               <th style={{ width: 120 }}>Changes</th>
-              <th style={{ width: 190 }} />
+              <th style={{ width: 190 }}>
+                <span className="sr-only">Actions</span>
+              </th>
             </tr>
           </thead>
           <tbody>
