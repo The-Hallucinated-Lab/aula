@@ -13,7 +13,7 @@ import type { RoomFeature, Session } from '../data/model'
 import { blackoutsCovering, meetingsInTerm } from '../data/academicCalendar'
 import type { RuleKey } from '../data/constraints/types'
 import {
-  bool, consecutiveRun, num, overlaps, slotAtOrAfter, slotEndingBefore, str,
+  bool, consecutiveRun, num, overlaps, slotAtOrAfter, slotEndMinutes, slotEndingBefore, str,
   type Candidate, type RuleImpl,
 } from './context'
 
@@ -44,8 +44,8 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
   /* ---------- resource exclusivity & availability ---------- */
 
   facultyNoOverlap: {
-    check: (c, occ) => occ.facultyBusy(c.faculty.id, c.day, c.slot, c.length)
-      ? `${c.faculty.name} is already teaching in this slot` : ok,
+    check: (c, occ) => occ.staffBusy(c.staff.id, c.day, c.slot, c.length)
+      ? `${c.staff.name} is already teaching in this slot` : ok,
   },
 
   roomNoOverlap: {
@@ -81,7 +81,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
   },
 
   facultySabbatical: {
-    check: c => c.faculty.onSabbatical ? `${c.faculty.name} is on sabbatical` : ok,
+    check: c => c.staff.onSabbatical ? `${c.staff.name} is on sabbatical` : ok,
   },
 
   courseSuspended: {
@@ -136,67 +136,67 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
     check: c => c.room?.restricted ? `${c.room.name} is reserved and cannot host scheduled classes` : ok,
   },
 
-  /* ---------- faculty workload & legal ---------- */
+  /* ---------- staff workload & legal ---------- */
 
   facultyMaxWeekly: {
     check: (c, occ, _ctx, p) => {
-      const cap = Math.min(num(p, 'maxHours', 18), c.faculty.maxPerWeek)
-      return occ.facultyWeekHours(c.faculty.id) + c.length > cap
-        ? `${c.faculty.name} would exceed ${cap} teaching hours this week` : ok
+      const cap = Math.min(num(p, 'maxHours', 18), c.staff.maxPerWeek)
+      return occ.staffWeekHours(c.staff.id) + c.length > cap
+        ? `${c.staff.name} would exceed ${cap} teaching hours this week` : ok
     },
   },
 
   facultyMaxPerDay: {
-    check: (c, occ) => occ.facultyDayHours(c.faculty.id, c.day) + c.length > c.faculty.maxPerDay
-      ? `${c.faculty.name} would exceed ${c.faculty.maxPerDay} hours on this day` : ok,
+    check: (c, occ) => occ.staffDayHours(c.staff.id, c.day) + c.length > c.staff.maxPerDay
+      ? `${c.staff.name} would exceed ${c.staff.maxPerDay} hours on this day` : ok,
   },
 
   adjunctMaxWeekly: {
     check: (c, occ, _ctx, p) => {
-      if (c.faculty.rank !== 'Adjunct') return ok
+      if (c.staff.rank !== 'Adjunct') return ok
       const cap = num(p, 'maxHours', 9)
-      return occ.facultyWeekHours(c.faculty.id) + c.length > cap
-        ? `Adjunct ${c.faculty.name} would exceed the ${cap} h part-time limit` : ok
+      return occ.staffWeekHours(c.staff.id) + c.length > cap
+        ? `Adjunct ${c.staff.name} would exceed the ${cap} h part-time limit` : ok
     },
   },
 
   taMaxWeekly: {
     check: (c, occ, _ctx, p) => {
-      if (c.faculty.rank !== 'Teaching Assistant') return ok
+      if (c.staff.rank !== 'Teaching Assistant') return ok
       const cap = num(p, 'maxHours', 12)
-      return occ.facultyWeekHours(c.faculty.id) + c.length > cap
-        ? `TA ${c.faculty.name} would exceed the ${cap} h union limit` : ok
+      return occ.staffWeekHours(c.staff.id) + c.length > cap
+        ? `TA ${c.staff.name} would exceed the ${cap} h union limit` : ok
     },
   },
 
   facultyBlockedDays: {
-    check: c => c.faculty.blockedDays.includes(c.day)
-      ? `${c.faculty.name} has a protected research/administrative day` : ok,
+    check: c => c.staff.blockedDays.includes(c.day)
+      ? `${c.staff.name} has a protected research/administrative day` : ok,
   },
 
   facultyBlockedSlots: {
-    check: c => coversAny(c.day, c.slot, c.length, c.faculty.blockedSlots)
-      ? `${c.faculty.name} is unavailable in this slot` : ok,
+    check: c => coversAny(c.day, c.slot, c.length, c.staff.blockedSlots)
+      ? `${c.staff.name} is unavailable in this slot` : ok,
   },
 
   visitingCampusDays: {
-    check: c => c.faculty.campusDays.length > 0 && !c.faculty.campusDays.includes(c.day)
-      ? `${c.faculty.name} is not on campus this day` : ok,
+    check: c => c.staff.campusDays.length > 0 && !c.staff.campusDays.includes(c.day)
+      ? `${c.staff.name} is not on campus this day` : ok,
   },
 
   facultyQualified: {
     check: c => {
-      if (!c.faculty.subjects.includes(c.course.id)) {
-        return `${c.faculty.name} is not qualified for ${c.course.code}`
+      if (!c.staff.subjects.includes(c.course.id)) {
+        return `${c.staff.name} is not qualified for ${c.course.code}`
       }
       /* A tutor engaged for small groups is not qualified for a 200-seat
          combined lecture, whatever their subject expertise says. Programme
          eligibility and session-kind authorisation are already resolved into
          `subjects` by the generator; headcount cannot be, because it belongs to
          the cohort rather than the course. */
-      const cap = c.faculty.maxHeadcount
+      const cap = c.staff.maxHeadcount
       return cap > 0 && c.headcount > cap
-        ? `${c.faculty.name} takes groups of up to ${cap}; this one is ${c.headcount}`
+        ? `${c.staff.name} takes groups of up to ${cap}; this one is ${c.headcount}`
         : ok
     },
   },
@@ -208,23 +208,23 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       if (dayIdx < 0) return ok
 
       const start = ctx.grid.starts[c.slot]
-      const end = start + c.length * ctx.grid.slotMinutes
+      const end = slotEndMinutes(ctx.grid, c.slot, c.length)
 
       const prevDay = ctx.grid.days[dayIdx - 1]
       if (prevDay !== undefined) {
-        for (const s of occ.facultyOnDay(c.faculty.id, prevDay)) {
-          const prevEnd = ctx.grid.starts[s.slot] + s.length * ctx.grid.slotMinutes
+        for (const s of occ.staffOnDay(c.staff.id, prevDay)) {
+          const prevEnd = slotEndMinutes(ctx.grid, s.slot, s.length)
           if (start + 24 * 60 - prevEnd < restMinutes) {
-            return `${c.faculty.name} would get under ${num(p, 'restHours', 12)} h rest after the previous evening`
+            return `${c.staff.name} would get under ${num(p, 'restHours', 12)} h rest after the previous evening`
           }
         }
       }
       const nextDay = ctx.grid.days[dayIdx + 1]
       if (nextDay !== undefined) {
-        for (const s of occ.facultyOnDay(c.faculty.id, nextDay)) {
+        for (const s of occ.staffOnDay(c.staff.id, nextDay)) {
           const nextStart = ctx.grid.starts[s.slot]
           if (nextStart + 24 * 60 - end < restMinutes) {
-            return `${c.faculty.name} would get under ${num(p, 'restHours', 12)} h rest before the next morning`
+            return `${c.staff.name} would get under ${num(p, 'restHours', 12)} h rest before the next morning`
           }
         }
       }
@@ -236,35 +236,60 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
     check: (c, occ, _ctx, p) => {
       const policy = num(p, 'maxConsecutive', 3)
       // a personal limit only ever tightens the institutional one
-      const personal = c.faculty.maxConsecutive
+      const personal = c.staff.maxConsecutive
       const cap = personal > 0 ? Math.min(policy, personal) : policy
-      const run = consecutiveRun(occ.facultyOnDay(c.faculty.id, c.day), c.slot, c.length)
-      return run > cap ? `${c.faculty.name} would teach ${run} hours back-to-back (cap ${cap})` : ok
+      const run = consecutiveRun(occ.staffOnDay(c.staff.id, c.day), c.slot, c.length)
+      return run > cap ? `${c.staff.name} would teach ${run} hours back-to-back (cap ${cap})` : ok
     },
   },
 
+  /*
+   * C017 reads: "Instructors must be granted a guaranteed lunch break **if
+   * teaching across the midday block**." The qualifier is the whole rule. This
+   * previously protected the midday slots for everyone who taught at all that
+   * day, including someone whose entire day ended before lunch began — wider
+   * than the constraint it implements, and, on a two-shift grid where the
+   * boundary sits at midday, the single largest source of refusals.
+   *
+   * Someone teaching only one side of the break takes lunch on the other side
+   * by construction. Someone spanning it does not, and is the person C017 is
+   * about.
+   */
   facultyLunch: {
     check: (c, occ, ctx) => {
       const lunch = ctx.grid.lunchSlots
       if (lunch.length === 0) return ok
+
       const taken = new Set<number>()
-      for (const s of occ.facultyOnDay(c.faculty.id, c.day)) {
+      for (const s of occ.staffOnDay(c.staff.id, c.day)) {
         for (let k = 0; k < s.length; k++) taken.add(s.slot + k)
       }
       for (let k = 0; k < c.length; k++) taken.add(c.slot + k)
+
+      const first = lunch[0]
+      const last = lunch[lunch.length - 1]
+      let before = false
+      let after = false
+      for (const s of taken) {
+        if (s < first) before = true
+        else if (s > last) after = true
+      }
+      if (!before || !after) return ok
+
       return lunch.every(s => taken.has(s))
-        ? `${c.faculty.name} would lose the protected lunch break` : ok
+        ? `${c.staff.name} teaches either side of the midday block and would lose the protected lunch break`
+        : ok
     },
   },
 
   facultyAccessibleRoom: {
     check: (c, _occ, ctx) => {
-      if (!c.faculty.needsAccessibleRoom || !c.room) return ok
+      if (!c.staff.needsAccessibleRoom || !c.room) return ok
       const b = ctx.buildingById.get(c.room.buildingId)
       const stepFree = c.room.features.includes('wheelchairAccess')
         || c.room.floor === 0 || c.room.floor === 1 || !!b?.hasElevator
       return stepFree && b?.accessible !== false
-        ? ok : `${c.room.name} does not meet ${c.faculty.name}'s access accommodation`
+        ? ok : `${c.room.name} does not meet ${c.staff.name}'s access accommodation`
     },
   },
 
@@ -272,42 +297,42 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
     check: (c, occ, _ctx, p) => {
       if (c.course.kind !== 'Lab') return ok
       const cap = num(p, 'maxLabHours', 8)
-      return occ.facultyLabWeekHours(c.faculty.id) + c.length > cap
-        ? `${c.faculty.name} would exceed ${cap} h of lab supervision` : ok
+      return occ.staffLabWeekHours(c.staff.id) + c.length > cap
+        ? `${c.staff.name} would exceed ${cap} h of lab supervision` : ok
     },
   },
 
   newFacultyLoad: {
     check: (c, occ, _ctx, p) => {
-      if (!c.faculty.isNew) return ok
+      if (!c.staff.isNew) return ok
       const cap = num(p, 'maxHours', 12)
-      return occ.facultyWeekHours(c.faculty.id) + c.length > cap
-        ? `${c.faculty.name} is in their first year (cap ${cap} h)` : ok
+      return occ.staffWeekHours(c.staff.id) + c.length > cap
+        ? `${c.staff.name} is in their first year (cap ${cap} h)` : ok
     },
   },
 
   newPreparationCap: {
     check: (c, _occ, _ctx, p) => {
       const cap = num(p, 'maxNew', 2)
-      return c.faculty.newPreparations > cap
-        ? `${c.faculty.name} already carries ${c.faculty.newPreparations} new preparations (cap ${cap})` : ok
+      return c.staff.newPreparations > cap
+        ? `${c.staff.name} already carries ${c.staff.newPreparations} new preparations (cap ${cap})` : ok
     },
   },
 
   adjunctSpreadCap: {
     check: (c, occ, _ctx, p) => {
-      if (c.faculty.rank !== 'Adjunct') return ok
+      if (c.staff.rank !== 'Adjunct') return ok
       const cap = num(p, 'maxDays', 3)
-      const days = occ.facultyTeachingDays(c.faculty.id)
+      const days = occ.staffTeachingDays(c.staff.id)
       return !days.has(c.day) && days.size >= cap
-        ? `Adjunct ${c.faculty.name} would be on campus more than ${cap} days` : ok
+        ? `Adjunct ${c.staff.name} would be on campus more than ${cap} days` : ok
     },
   },
 
   consecutiveDayCap: {
     cost: (c, occ, ctx, p) => {
       const cap = num(p, 'maxDays', 3)
-      const days = [...occ.facultyTeachingDays(c.faculty.id), c.day].sort((a, b) => a - b)
+      const days = [...occ.staffTeachingDays(c.staff.id), c.day].sort((a, b) => a - b)
       let run = 1, best = 1
       for (let i = 1; i < days.length; i++) {
         run = days[i] === days[i - 1] + 1 ? run + 1 : 1
@@ -321,41 +346,41 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
   overtimeAvoid: {
     cost: (c, occ, _ctx, p) => {
       const threshold = num(p, 'threshold', 16)
-      const after = occ.facultyWeekHours(c.faculty.id) + c.length
+      const after = occ.staffWeekHours(c.staff.id) + c.length
       return after > threshold ? Math.min(1, (after - threshold) / 6) : 0
     },
   },
 
   seniorityLoadFloor: {
     cost: (c, occ, _ctx, p) => {
-      if (c.faculty.rank !== 'Adjunct') return 0
+      if (c.staff.rank !== 'Adjunct') return 0
       const floor = num(p, 'floorHours', 8)
       // penalise loading adjuncts while the ranked staff are still light
-      return occ.facultyWeekHours(c.faculty.id) < floor ? 0.2 : 0.5
+      return occ.staffWeekHours(c.staff.id) < floor ? 0.2 : 0.5
     },
   },
 
   taRatio: {
-    cost: c => (c.faculty.rank === 'Teaching Assistant' && c.headcount > 50) ? 0.6 : 0,
+    cost: c => (c.staff.rank === 'Teaching Assistant' && c.headcount > 50) ? 0.6 : 0,
   },
 
-  /* ---------- faculty preferences (soft) ---------- */
+  /* ---------- staff preferences (soft) ---------- */
 
   avoidEarlySlot: {
-    cost: c => c.slot < c.faculty.earliestSlot ? 1 : 0,
+    cost: c => c.slot < c.staff.earliestSlot ? 1 : 0,
   },
 
   facultyTimeWindow: {
     cost: c => {
-      const early = c.slot < c.faculty.earliestSlot
-      const late = c.slot + c.length > c.faculty.latestSlot
+      const early = c.slot < c.staff.earliestSlot
+      const late = c.slot + c.length > c.staff.latestSlot
       return early || late ? 1 : 0
     },
   },
 
   compactTeachingDays: {
     cost: (c, occ, ctx) => {
-      const days = occ.facultyTeachingDays(c.faculty.id)
+      const days = occ.staffTeachingDays(c.staff.id)
       if (days.has(c.day) || days.size === 0) return 0
       return Math.min(1, (days.size + 1) / ctx.grid.days.length)
     },
@@ -364,7 +389,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
   sameBuildingPerDay: {
     cost: (c, occ) => {
       if (!c.room) return 0
-      const used = occ.facultyBuildingsOn(c.faculty.id, c.day)
+      const used = occ.staffBuildingsOn(c.staff.id, c.day)
       if (used.size === 0 || used.has(c.room.buildingId)) return 0
       return 0.8
     },
@@ -373,22 +398,22 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
   minimiseRoomCount: {
     cost: (c, occ, ctx) => {
       if (!c.room) return 0
-      const n = occ.facultyRoomCount(c.faculty.id)
+      const n = occ.staffRoomCount(c.staff.id)
       const sprawl = n === 0 ? 0 : Math.min(1, n / Math.max(3, ctx.inst.rooms.length / 4))
       /* Same question, second half: not just how many rooms this instructor is
          spread over but whether any of them is the kind they teach in. Both are
          preferences about the rooms one person is given, so they share a
          weight rather than competing for two. */
-      const wrongKind = c.faculty.preferredRoomKind
-        && c.room.kind !== c.faculty.preferredRoomKind ? 0.3 : 0
+      const wrongKind = c.staff.preferredRoomKind
+        && c.room.kind !== c.staff.preferredRoomKind ? 0.3 : 0
       return Math.min(1, sprawl + wrongKind)
     },
   },
 
   preferBackToBack: {
     cost: (c, occ) => {
-      if (!c.faculty.prefersBackToBack) return 0
-      const same = occ.facultyOnDay(c.faculty.id, c.day)
+      if (!c.staff.prefersBackToBack) return 0
+      const same = occ.staffOnDay(c.staff.id, c.day)
       if (same.length === 0) return 0
       const adjacent = same.some(s => s.slot + s.length === c.slot || c.slot + c.length === s.slot)
       return adjacent ? 0 : 0.7
@@ -397,8 +422,8 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
 
   preferPrepGap: {
     cost: (c, occ) => {
-      if (!c.faculty.needsPrepGap) return 0
-      const same = occ.facultyOnDay(c.faculty.id, c.day)
+      if (!c.staff.needsPrepGap) return 0
+      const same = occ.staffOnDay(c.staff.id, c.day)
       const adjacent = same.some(s => s.slot + s.length === c.slot || c.slot + c.length === s.slot)
       return adjacent ? 0.9 : 0
     },
@@ -407,8 +432,8 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
   preferDayPart: {
     cost: (c, _occ, ctx) => {
       const morning = c.slot < ctx.grid.slots / 2
-      const wantsMorning = c.faculty.latestSlot <= ctx.grid.slots / 2
-      const wantsAfternoon = c.faculty.earliestSlot >= ctx.grid.slots / 2
+      const wantsMorning = c.staff.latestSlot <= ctx.grid.slots / 2
+      const wantsAfternoon = c.staff.earliestSlot >= ctx.grid.slots / 2
       if (wantsMorning && !morning) return 1
       if (wantsAfternoon && morning) return 1
       return 0
@@ -420,7 +445,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       const prime = ctx.grid.primeSlots.includes(c.slot)
       if (!prime) return 0
       // junior staff occupying a prime slot carries a small cost
-      return c.faculty.seniority >= 3 ? 0 : (3 - c.faculty.seniority) / 6
+      return c.staff.seniority >= 3 ? 0 : (3 - c.staff.seniority) / 6
     },
   },
 
@@ -535,7 +560,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
   clusterCohortDays: {
     cost: (c, occ, ctx) => {
       if (c.cohort.mode === 'day') return 0
-      const days = occ.facultyTeachingDays(c.cohort.id)
+      const days = occ.staffTeachingDays(c.cohort.id)
       void days
       const used = new Set(ctx.grid.days.filter(d => occ.cohortOnDay(c.cohort.id, d).length > 0))
       return used.size === 0 || used.has(c.day) ? 0 : 0.8
@@ -860,7 +885,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       const need = num(p, 'travelMinutes', 60)
       const campus = ctx.buildingById.get(c.room.buildingId)?.campusId
       if (!campus) return ok
-      for (const s of occ.facultyOnDay(c.faculty.id, c.day)) {
+      for (const s of occ.staffOnDay(c.staff.id, c.day)) {
         const other = ctx.roomById.get(s.roomId)
         const otherCampus = other ? ctx.buildingById.get(other.buildingId)?.campusId : undefined
         if (!otherCampus || otherCampus === campus) continue
@@ -869,7 +894,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
           : s.slot - (c.slot + c.length)
         if (gapSlots < 0) continue
         if (gapSlots * ctx.grid.slotMinutes + ctx.grid.passingMinutes < need) {
-          return `${c.faculty.name} cannot cross campuses in under ${need} min`
+          return `${c.staff.name} cannot cross campuses in under ${need} min`
         }
       }
       return ok
@@ -902,7 +927,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       if (!c.room) return ok
       const need = num(p, 'walkMinutes', 15)
       const exemptSameBuilding = bool(p, 'sameBuildingExempt', true)
-      for (const s of occ.facultyOnDay(c.faculty.id, c.day)) {
+      for (const s of occ.staffOnDay(c.staff.id, c.day)) {
         const other = ctx.roomById.get(s.roomId)
         if (!other) continue
         if (exemptSameBuilding && other.buildingId === c.room.buildingId) continue
@@ -911,7 +936,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
         if (!adjacentBefore && !adjacentAfter) continue
         const walk = ctx.buildingById.get(other.buildingId)?.walkMinutes ?? 0
         if (Math.max(walk, need) > ctx.grid.passingMinutes) {
-          return `${c.faculty.name} needs ${Math.max(walk, need)} min to walk between these rooms`
+          return `${c.staff.name} needs ${Math.max(walk, need)} min to walk between these rooms`
         }
       }
       return ok
@@ -920,10 +945,10 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
 
   mobilityLocalised: {
     check: (c, occ) => {
-      if (!c.faculty.needsAccessibleRoom || !c.room) return ok
-      const buildings = occ.facultyBuildingsOn(c.faculty.id, c.day)
+      if (!c.staff.needsAccessibleRoom || !c.room) return ok
+      const buildings = occ.staffBuildingsOn(c.staff.id, c.day)
       return buildings.size === 0 || buildings.has(c.room.buildingId)
-        ? ok : `${c.faculty.name} needs a localised, low-travel day`
+        ? ok : `${c.staff.name} needs a localised, low-travel day`
     },
   },
 
@@ -938,7 +963,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
       /* An instructor anchored to a block keeps their office, their equipment
          and their between-class minutes there. Teaching them out of it is not
          forbidden, it just costs something. */
-      if (c.faculty.homeBuildingId && c.faculty.homeBuildingId !== c.room.buildingId) {
+      if (c.staff.homeBuildingId && c.staff.homeBuildingId !== c.room.buildingId) {
         cost += 0.4
       }
       return Math.min(1, cost)
@@ -985,7 +1010,7 @@ export const RULES: Partial<Record<RuleKey, RuleImpl>> = {
 
   adjustablePodium: {
     check: c => {
-      if (!c.faculty.needsAccessibleRoom || !c.room) return ok
+      if (!c.staff.needsAccessibleRoom || !c.room) return ok
       return c.room.features.includes('adjustablePodium') || c.room.features.includes('wheelchairAccess')
         ? ok : `${c.room.name} has no height-adjustable podium`
     },

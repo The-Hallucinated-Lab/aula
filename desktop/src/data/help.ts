@@ -44,7 +44,7 @@ export const HELP = {
   closedDays:
     'Days this room is unavailable for the whole day. The scheduler treats it as if the room does not exist that day.',
 
-  /* --- faculty --- */
+  /* --- staff --- */
   maxPerWeek:
     'The contractual ceiling on teaching hours a week for full-time staff.',
   maxPerDay:

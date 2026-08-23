@@ -23,7 +23,16 @@ export type CustomTemplate =
   | 'requireBuilding'
   | 'avoidBuilding'
 
-export type ScopeKind = 'all' | 'cohort' | 'faculty' | 'department' | 'course' | 'room'
+export const SCOPE_KINDS = ['all', 'cohort', 'staff', 'department', 'course', 'room'] as const
+export type ScopeKind = typeof SCOPE_KINDS[number]
+
+/**
+ * Scope kinds saved by builds before the person entity was renamed from
+ * `Faculty` to `Staff`. A project file written then carries `kind: 'faculty'`,
+ * which no longer matches anything in `inScope` — so without this the rule
+ * would load, look intact in the editor and silently never fire.
+ */
+export const LEGACY_SCOPE_KINDS: Record<string, ScopeKind> = { faculty: 'staff' }
 
 export interface CustomScope {
   kind: ScopeKind
@@ -72,7 +81,7 @@ export const TEMPLATES: TemplateMeta[] = [
     id: 'blockSlot',
     name: 'Keep a slot free',
     blurb: 'Nothing may be scheduled in one specific slot on one day.',
-    scopes: ['all', 'cohort', 'faculty', 'department'],
+    scopes: ['all', 'cohort', 'staff', 'department'],
     params: [
       { key: 'day', label: 'Day', kind: 'day', def: 2 },
       { key: 'slot', label: 'Slot', kind: 'slot', def: 4 },
@@ -83,7 +92,7 @@ export const TEMPLATES: TemplateMeta[] = [
     id: 'dayOff',
     name: 'Keep a whole day free',
     blurb: 'Nothing may be scheduled on one day of the week.',
-    scopes: ['all', 'cohort', 'faculty', 'department'],
+    scopes: ['all', 'cohort', 'staff', 'department'],
     params: [{ key: 'day', label: 'Day', kind: 'day', def: 4 }],
     phrase: (s, p) => `${s} must not be scheduled on ${dayName(num(p, 'day'))}.`,
   },
@@ -91,7 +100,7 @@ export const TEMPLATES: TemplateMeta[] = [
     id: 'noEarlierThan',
     name: 'No early starts',
     blurb: 'Nothing may start before a given slot.',
-    scopes: ['all', 'cohort', 'faculty', 'department', 'course'],
+    scopes: ['all', 'cohort', 'staff', 'department', 'course'],
     params: [{ key: 'slot', label: 'Earliest slot', kind: 'slot', def: 1 }],
     phrase: (s, p) => `${s} must not start before slot ${num(p, 'slot') + 1}.`,
   },
@@ -99,7 +108,7 @@ export const TEMPLATES: TemplateMeta[] = [
     id: 'noLaterThan',
     name: 'No late finishes',
     blurb: 'Nothing may run past a given slot.',
-    scopes: ['all', 'cohort', 'faculty', 'department', 'course'],
+    scopes: ['all', 'cohort', 'staff', 'department', 'course'],
     params: [{ key: 'slot', label: 'Last slot', kind: 'slot', def: 6 }],
     phrase: (s, p) => `${s} must finish by the end of slot ${num(p, 'slot') + 1}.`,
   },
@@ -107,7 +116,7 @@ export const TEMPLATES: TemplateMeta[] = [
     id: 'maxPerDay',
     name: 'Cap hours per day',
     blurb: 'Limit how many teaching hours land on any single day.',
-    scopes: ['cohort', 'faculty', 'department'],
+    scopes: ['cohort', 'staff', 'department'],
     params: [{ key: 'hours', label: 'Maximum hours', kind: 'count', def: 5 }],
     phrase: (s, p) => `${s} must not exceed ${num(p, 'hours')} hours in a day.`,
   },
@@ -115,7 +124,7 @@ export const TEMPLATES: TemplateMeta[] = [
     id: 'maxConsecutive',
     name: 'Cap consecutive hours',
     blurb: 'Limit back-to-back teaching without a break.',
-    scopes: ['cohort', 'faculty', 'department'],
+    scopes: ['cohort', 'staff', 'department'],
     params: [{ key: 'hours', label: 'Maximum consecutive', kind: 'count', def: 3 }],
     phrase: (s, p) => `${s} must not teach or sit more than ${num(p, 'hours')} consecutive hours.`,
   },

@@ -14,7 +14,7 @@ export interface Metrics {
   /** [dayIndexInWeek][slot] = rooms occupied */
   heatmap: number[][]
   deptLoad: { deptId: string; sessions: number }[]
-  facultyLoad: Map<string, number>
+  staffLoad: Map<string, number>
   roomUsage: { roomId: string; used: number }[]
   /** cohorts with at least one lunch-free day, as a share */
   lunchProtected: number
@@ -26,7 +26,7 @@ export function computeMetrics(inst: Institution, sessions: Session[]): Metrics 
   const totalRoomSlots = inst.rooms.length * grid.days.length * grid.slots
 
   const heatmap: number[][] = Array.from({ length: grid.days.length }, () => Array(grid.slots).fill(0))
-  const facultyLoad = new Map<string, number>()
+  const staffLoad = new Map<string, number>()
   const roomUsed = new Map<string, number>()
   const deptSessions = new Map<string, number>()
   const courseDept = new Map(inst.courses.map(c => [c.id, c.deptId]))
@@ -42,13 +42,13 @@ export function computeMetrics(inst: Institution, sessions: Session[]): Metrics 
         if (slot < grid.slots) heatmap[di][slot]++
       }
     }
-    facultyLoad.set(s.facultyId, (facultyLoad.get(s.facultyId) ?? 0) + s.length)
+    staffLoad.set(s.staffId, (staffLoad.get(s.staffId) ?? 0) + s.length)
     if (s.roomId) roomUsed.set(s.roomId, (roomUsed.get(s.roomId) ?? 0) + s.length)
     const d = courseDept.get(s.courseId)
     if (d) deptSessions.set(d, (deptSessions.get(d) ?? 0) + s.length)
   }
 
-  const loads = inst.faculty.map(f => facultyLoad.get(f.id) ?? 0)
+  const loads = inst.staff.map(f => staffLoad.get(f.id) ?? 0)
   const mean = loads.reduce((a, b) => a + b, 0) / Math.max(loads.length, 1)
   const loadStdDev = Math.sqrt(
     loads.reduce((a, b) => a + (b - mean) ** 2, 0) / Math.max(loads.length, 1),
@@ -76,7 +76,7 @@ export function computeMetrics(inst: Institution, sessions: Session[]): Metrics 
     for (let k = 0; k < s.length; k++) {
       const slot = s.slot + k
       const keys = [
-        `f:${s.facultyId}:${s.day}:${slot}`,
+        `f:${s.staffId}:${s.day}:${slot}`,
         `g:${s.cohortId}:${s.day}:${slot}`,
       ]
       if (s.roomId) keys.push(`r:${s.roomId}:${s.day}:${slot}`)
@@ -118,7 +118,7 @@ export function computeMetrics(inst: Institution, sessions: Session[]): Metrics 
     morningShare: contactHours > 0 ? morningHours / contactHours : 0,
     heatmap,
     deptLoad: inst.departments.map(d => ({ deptId: d.id, sessions: deptSessions.get(d.id) ?? 0 })),
-    facultyLoad,
+    staffLoad,
     roomUsage: inst.rooms.map(r => ({ roomId: r.id, used: roomUsed.get(r.id) ?? 0 })),
     lunchProtected: totalCohortDays > 0 ? protectedDays / totalCohortDays : 1,
   }

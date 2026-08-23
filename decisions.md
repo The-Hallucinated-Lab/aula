@@ -312,3 +312,179 @@ room it was looking at was occupied at all, so the whole allowance was spent
 walking empty cells in the first day or two and the pass reported "no
 displacement possible" without having evaluated one. The counter now increments
 only when a real swap is about to be tried.
+
+
+---
+
+## Session 3 — 2026-08-23 — fitting a real institution
+
+**D-45 — The person is a `Staff`; `Faculty` is an institutional division.**
+Institutions use "Faculty" for the top-level academic division (FOSTA — Faculty of
+Science and Technology). The code used it for a teacher. That is a genuine
+collision rather than a preference — the word is needed for a different concept
+— so the person moved: `Faculty` → `Staff`, `FacultyRecord` → `StaffRecord`,
+`Session.facultyId` → `staffId`.
+
+The 124 **rule keys are deliberately unchanged**. `facultyMaxWeekly` still reads
+correctly as the name of a rule, and those keys are the join between
+`engine/rules.ts` and 500 published catalogue rows; renaming them would have
+meant editing 79 KB of the catalogue to gain nothing. The type rename is
+mechanical and `tsc -b` drives it to completion; the key rename would have been
+neither. *Rejected:* keeping `Faculty` for the person and calling the division
+something else, which leaves the ambiguity in place permanently.
+
+`Cohort` was **not** renamed to `Section`, because there is no collision there —
+only a local preference. That one is handled with UI strings.
+
+**D-46 — Shift confinement is structural, and it lives at the rejection
+chokepoint rather than in the search loop.**
+A morning-shift section has no students on campus in the evening, so an evening
+placement is not an expensive option, it is not an option — the same character
+as qualification, which D-41 already resolves into the roster.
+
+It also could not have been a catalogue rule: `activeRules` only ever activates
+rules that a numbered row references, and the published 1–500 range is closed
+(D-05), so a new rule key would have been dead code.
+
+The placement is the load-bearing part. Every path that commits a session —
+the bounded search, the exhaustive sweep, the displacement pass and interactive
+drag-and-drop — funnels through `firstHardFailure` or `allHardFailures`, so the
+gate sits there. A check in the search loop alone would have left the user able
+to drag a class out of its shift by hand. The loop *also* pre-filters, but only
+for speed. The harness re-derives the invariant from the produced schedule
+independently, per D-13.
+
+**D-47 — A configuration with no shifts is one shift spanning the day.**
+Not "shifts off". One code path, so the confinement check never needs a null
+case, and a single-shift institution never has to think about the feature. The
+two-shift split is a preset applied in Setup, not a default: confining every
+section to half the grid is a real scheduling constraint, and switching it on
+for everybody would have made the shipped default fail for reasons that have
+nothing to do with the institution being described.
+
+**D-48 — A batch profile states the difference, not the curriculum.**
+Course load changes between intakes — one batch takes a single elective, the next
+takes two — while the programme does not. A `Profile` therefore holds
+`Partial<CoursePolicy>` per programme and sits *on top of* the programme's own
+figures, which is the same shape as the per-year section override (D-28): the
+default remains, the override states what changed. "Copy from" clones a profile
+so a new intake starts as the one it resembles; graduated batches are archived
+rather than deleted so old timetables still explain themselves.
+*Rejected:* moving the five policy fields off `ProgramConfig` entirely, which
+would have made every profile restate a whole curriculum to change one number,
+and broken the programme editor in the same pass.
+
+**D-49 — The last period of the day may be shorter than the rest.**
+A 50-minute grid from 09:00 does not divide into a day ending at 18:00: ten whole
+periods reach 17:20 and leave 40 minutes, and an eleventh would run to 18:10. The
+old behaviour floored the count and silently lost the final period — which is why
+a class scheduled to end at 18:10 could not be placed against an 18:00 close.
+`TimeGrid.durations` now carries a real length per slot and
+`minFinalSlotMinutes` makes the choice a stated policy. Consequently **nothing
+may compute a duration as `length * slotMinutes`**; `sessionMinutes` in
+`data/model.ts` is the single definition, placed there rather than in the engine
+because exporters and the UI need it and `src/data` may not import `src/engine`.
+
+**D-50 — C017 protects the break for people who span it, and nobody else.**
+The rule was wider than the constraint it implements. C017 reads "Instructors
+must be granted a guaranteed lunch break **if teaching across the midday
+block**", and the qualifier is the whole rule: somebody teaching only one side of
+the break takes lunch on the other side by construction. Protecting the midday
+slots for everybody who taught that day was, on a two-shift grid whose boundary
+sits at midday, the largest single source of refusals in the solve. Narrowing it
+to what the text says removed C017 from the top blockers entirely.
+
+This is the second time a rule has been found to disagree with its own published
+sentence (D-31 was the first, in prose rather than logic). Both were invisible to
+every automated gate.
+
+**D-51 — Workload is a band per designation, with a floor as well as a ceiling.**
+A Professor and an Assistant Professor do not carry the same hours, and the
+difference is policy, not preference. `loadByRank` replaces the flat ceiling, and
+`loadForRank` is the single resolver so the generator's rosters and
+`expectedStaffCapacity`'s estimate can never disagree. A minimum matters too:
+constraint 19 is about the floor and nothing recorded one.
+
+**The numbers are defaults, not facts.** The two requirement sources disagree —
+the internal review recorded Assistant Professor as 12 min / 16 max, the
+coordinator gave Assistant ~14–16, Associate ~12, Professor ~8 — and neither is
+authoritative. The mechanism is what was built; the figures need departmental
+confirmation before anybody relies on them.
+
+**D-52 — Walk time was removed from the interface; the lift flag was not.**
+The review asked for both to go, on the grounds that a single per-building
+walking figure cannot express times that vary from 2 to 10 minutes depending on
+which two blocks. That is right about walk time, and it is gone from Setup
+(the field remains in the model at a uniform default because the back-to-back
+travel rules read it, and it can still arrive from an import).
+
+The lift flag is a different matter and was kept. C147 and C384 read lift status
+and floor, and **D-42 records a real bug** — a cohort with an accessibility need
+the estate could not meet — that existed precisely because the generator ignored
+them. Removing the flag would reintroduce it. This is the one item of the review
+that was not implemented as asked, and the reason is recorded here rather than
+left as a silent divergence.
+
+**D-53 — One combobox, twenty-seven dropdowns.**
+`components/ui.tsx` had `Field`, `NumberInput`, `TextInput`, `Segmented` and
+`Switch` — and no select at all. Every dropdown in the app was a native
+`<select>`: fine for five options, unusable for choosing one instructor from
+several hundred, which is the coordinator's daily reality. One primitive with
+type-to-filter, keyboard navigation and Tab-to-complete, then a mechanical swap
+of all 27, is what makes "type-to-search everywhere" a day's work rather than a
+fortnight's. `hint` carries the staff code or department that tells two people
+with the same name apart.
+
+The dropdown is positioned absolutely inside a relative wrapper, not fixed:
+every page is wrapped in `.fade-in`, whose transform makes it the containing
+block for fixed descendants (D-43), and absolute positioning is simply immune to
+that. Options must also cancel the click's default action, because `Field` wraps
+controls in a `<label>` and a label forwards clicks to its control — without it,
+choosing an option with the mouse reopens the list it just closed.
+
+**D-54 — Institution setup and term setup are separate screens, and the constant
+one is locked.**
+Most of what the old six-step wizard asked for does not change between terms:
+how many floors a block has, which schools sit under which faculty, when the
+morning shift ends. Sections, staffing, curriculum policy and term dates are what
+a timetable manager actually revisits. Mixing them meant re-reading the whole
+institution to change four numbers, and put the settings with the widest blast
+radius directly in the path of routine work.
+
+**D-55 — Institution edits accumulate as a draft and are committed deliberately.**
+Requested directly: changing institutional data has a ripple effect, so it should
+not save as you type. The preview still moves while you type — the impact of a
+change has to be visible — but nothing reaches storage until Save, and the
+confirmation names which settings will change rather than asking a bare "are you
+sure". Generating is blocked while a draft is outstanding, because
+`completeSetup` solves the saved config and would otherwise quietly schedule the
+old institution beside the new figures.
+
+Per-entity edits in the Data studio stay immediate. D-23 already establishes that
+an edit invalidates the schedule without re-solving, and that behaviour is right;
+the draft layer is scoped to the ripple-effect surface only.
+
+**D-56 — An import is a materialisation from a file.**
+GAP-04 named `generateInstitution` as the seam for imported data, but a better
+one already existed: `EntityOverrides` (D-22) already means "explicit records
+take over and the generator stops inventing this type". Feeding it from a CSV
+instead of from an edit inherits the whole validation, editing and
+reset-to-generated path unchanged.
+
+Two rules govern `data/importers.ts`. **No row is ever silently dropped** — a row
+that cannot be used comes back with its line number and a sentence, because a
+roster that imports "successfully" with eleven people missing is worse than one
+that refuses. And **nothing trusts the file**: columns may be missing, in any
+order, or spelled three ways; numbers may be blank or nonsense. The CSV parser is
+written out rather than pulled in because the failure modes are specific — a
+quoted comma, a doubled quote, Excel's byte-order mark — and a course called
+"Design, Analysis of Algorithms" is not unusual.
+
+**D-57 — The coordinator's thousand-selection problem is asserted, not assumed.**
+The largest single complaint about the incumbent system was that choosing a
+course did not carry forward to its sections: forty sections meant repeating the
+same selection forty times. Aula cannot have that defect, because a course
+belongs to a programme-year and every section of that year is taught it —
+qualification is recorded once per course, never per section. That is the claim
+the whole comparison rests on, so the harness asserts it rather than leaving it
+to be inferred from the schema.

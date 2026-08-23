@@ -120,13 +120,16 @@ State counts as of the run that produced them. Current measured baseline is in �
 room-type mismatches, unqualified assignments and cap breaches itself — so a
 solver bug cannot mark its own homework.
 
-### 11.1 Measured baseline (2026-08-21)
+### 11.1 Measured baseline (2026-08-23)
 
-78 checks pass. Default configuration: 1 campus, 4 buildings, 28 rooms, 5
-departments, 5 programmes, 90 courses, 24 cohorts, 1,365 students, 68 staff,
-5 days × 8 × 60-minute slots. 360 sessions, 384 contact hours, room utilisation
-34.3%, load spread ±2.35 h, lunch protected on 100% of cohort-days, solved in
-~2.4 s, soft penalty 1714.
+159 checks pass. Default configuration: 1 campus, 4 buildings, 28 rooms, 1
+faculty, 4 schools, 5 departments, 5 programmes, 90 courses, 24 cohorts, 1,365
+students, 68 staff, 5 days × 8 × 60-minute slots, one shift spanning the day.
+360 sessions, 384 contact hours, room utilisation 34.3%, load spread ±2.35 h,
+lunch protected on 100% of cohort-days, solved in ~1.8 s, soft penalty 1717.
+
+The penalty moved from 1714 because weekly load ceilings are now per designation
+rather than a flat 18 h (D-51), which is a real reduction in teaching capacity.
 
 Catalogue: 500 rows — 410 hard / 90 soft, 301 enforced / 199 advisory, 72
 parameterised rows carrying 88 knobs. Registry: 124 rule keys, all implemented;
@@ -138,8 +141,14 @@ but referenced by none.
 
 Recorded in `CONTEXT.md §4` (GAP-01…GAP-07). The load-bearing ones: the solver is
 greedy and does not prove optimality; 199 constraints cannot be decided from a
-weekly-teaching data model; there is no exam-scheduling entity; there is no
-CSV/SIS import; the assistant needs Ollama installed locally.
+weekly-teaching data model; there is no exam-scheduling entity; the assistant
+needs Ollama installed locally. GAP-04 (no CSV import) was closed on 2026-08-23.
+
+Two things are **not** covered by `npm run verify` and need driving in the app:
+anything in `store.ts` or a page, since the harness bundles only `data` and
+`engine`; and `scripts/` itself is outside both tsconfig projects, so the harness
+is never type-checked — a duplicate `const` there surfaced only as an esbuild
+failure.
 
 ### 11.3 The reader is a map, not a verdict
 

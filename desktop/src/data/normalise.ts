@@ -5,7 +5,7 @@
  * vouch for: localStorage, an `.aula.json` the user picked from disk, and a
  * project written by an older build. Until this module existed those values
  * went straight to the UI, so a project saved before `overrides` was added
- * took the whole window down on the first `config.overrides.faculty` read.
+ * took the whole window down on the first `config.overrides.staff` read.
  *
  * `normaliseConfig` is the single gate. It merges whatever arrived over the
  * defaults field by field, keeping every value that is usable and replacing
@@ -13,17 +13,21 @@
  */
 
 import {
-  DEFAULT_CONFIG,
+  DEFAULT_CONFIG, DEFAULT_RANK_LOADS,
   type BuildingConfig, type CalendarConfig, type CampusConfig, type DeptConfig,
-  type EquipmentConfig, type FacultyConfig, type ProgramConfig, type RoomGroupConfig,
+  type EquipmentConfig, type StaffConfig, type ProgramConfig, type RoomGroupConfig,
+  type FacultyConfig, type SchoolConfig, type ShiftConfig,
+  type CoursePolicy, type Profile, type RankLoad,
   type SetupConfig,
 } from './config'
-import type { CustomConstraint } from './constraints/custom'
-import type { CourseRecord, EntityOverrides, FacultyRecord } from './records'
+import { LEGACY_SCOPE_KINDS, SCOPE_KINDS } from './constraints/custom'
+import type { CustomConstraint, ScopeKind } from './constraints/custom'
+import type { CourseRecord, EntityOverrides, StaffRecord } from './records'
 import { isValidDate } from './academicCalendar'
 import {
-  CALENDAR_KINDS, COURSE_KINDS, EMPLOYMENT_TYPES, ROOM_KINDS,
+  CALENDAR_KINDS, COURSE_KINDS, EMPLOYMENT_TYPES, ROOM_KINDS, STAFF_RANKS,
   type CalendarEvent, type CourseKind, type EmploymentType, type RoomKind,
+  type StaffRank,
 } from './model'
 
 type Unknown = Record<string, unknown>
@@ -85,7 +89,20 @@ function normaliseCalendar(v: unknown): CalendarConfig {
   const c = asObject(v)
   const d = DEFAULT_CONFIG.calendar
   const days = asDayList(c.workingDays)
+  const shifts: ShiftConfig[] = []
+  const seenShift = new Set<string>()
+  for (const [i, raw] of asArray(c.shifts).entries()) {
+    const s = asObject(raw)
+    shifts.push({
+      id: claimId(seenShift, asString(s.id, `shift-${i + 1}`)),
+      name: asString(s.name, `Shift ${i + 1}`),
+      start: asTime(s.start, d.dayStart),
+      end: asTime(s.end, d.dayEnd),
+    })
+  }
   return {
+    shifts,
+    minFinalSlotMinutes: Math.max(0, asNumber(c.minFinalSlotMinutes, d.minFinalSlotMinutes)),
     workingDays: days.length > 0 ? days : [...d.workingDays],
     dayStart: asTime(c.dayStart, d.dayStart),
     dayEnd: asTime(c.dayEnd, d.dayEnd),
@@ -169,9 +186,51 @@ function normaliseCampuses(v: unknown): CampusConfig[] {
   return list.length > 0 ? list : DEFAULT_CONFIG.campuses.map(c => ({ ...c }))
 }
 
-function normaliseDepartments(v: unknown): DeptConfig[] {
+/* The hierarchy was added after the first release, so a project saved before
+   it has departments and nothing above them. Rather than refuse to load, one
+   faculty and one school are synthesised and every orphaned department is
+   parented under them — the tree is then well-formed and the administrator can
+   rename and split it in Institution Setup. */
+export const FALLBACK_FACULTY_ID = 'fac-default'
+export const FALLBACK_SCHOOL_ID = 'sch-default'
+
+function normaliseFaculties(v: unknown): FacultyConfig[] {
+  const seen = new Set<string>()
+  const list: FacultyConfig[] = []
+  for (const [i, raw] of asArray(v).entries()) {
+    const f = asObject(raw)
+    list.push({
+      id: claimId(seen, asString(f.id, `fac-${i + 1}`)),
+      code: asString(f.code, `F${i + 1}`).toUpperCase(),
+      name: asString(f.name, `Faculty ${i + 1}`),
+    })
+  }
+  return list
+}
+
+function normaliseSchools(v: unknown, faculties: FacultyConfig[]): SchoolConfig[] {
+  const facultyIds = new Set(faculties.map(f => f.id))
+  const fallback = faculties[0]?.id ?? FALLBACK_FACULTY_ID
+  const seen = new Set<string>()
+  const list: SchoolConfig[] = []
+  for (const [i, raw] of asArray(v).entries()) {
+    const s = asObject(raw)
+    const faculty = asString(s.faculty, fallback)
+    list.push({
+      id: claimId(seen, asString(s.id, `sch-${i + 1}`)),
+      code: asString(s.code, `S${i + 1}`).toUpperCase(),
+      name: asString(s.name, `School ${i + 1}`),
+      faculty: facultyIds.has(faculty) ? faculty : fallback,
+    })
+  }
+  return list
+}
+
+function normaliseDepartments(v: unknown, schools: SchoolConfig[]): DeptConfig[] {
   // Department codes are the join key for programmes, staff and courses, so a
   // duplicate would silently merge two departments into one.
+  const schoolIds = new Set(schools.map(s => s.id))
+  const fallback = schools[0]?.id ?? FALLBACK_SCHOOL_ID
   const seen = new Set<string>()
   const list: DeptConfig[] = []
   for (const [i, raw] of asArray(v).entries()) {
@@ -179,9 +238,33 @@ function normaliseDepartments(v: unknown): DeptConfig[] {
     const code = asString(d.code, `D${i + 1}`).toUpperCase()
     if (seen.has(code)) continue
     seen.add(code)
-    list.push({ code, name: asString(d.name, `Department ${i + 1}`) })
+    const school = asString(d.school, fallback)
+    list.push({
+      code,
+      name: asString(d.name, `Department ${i + 1}`),
+      school: schoolIds.has(school) ? school : fallback,
+    })
   }
   return list.length > 0 ? list : DEFAULT_CONFIG.departments.map(d => ({ ...d }))
+}
+
+/**
+ * Guarantee the tree has a root. Called after the three levels are read: if a
+ * project brought departments but no schools (or schools but no faculty), the
+ * missing ancestors are created rather than leaving dangling references.
+ */
+function rootHierarchy(faculties: FacultyConfig[], schools: SchoolConfig[]) {
+  if (faculties.length === 0) {
+    faculties.push({
+      id: FALLBACK_FACULTY_ID, code: 'GEN', name: 'General Faculty',
+    })
+  }
+  if (schools.length === 0) {
+    schools.push({
+      id: FALLBACK_SCHOOL_ID, code: 'GEN', name: 'General School',
+      faculty: faculties[0].id,
+    })
+  }
 }
 
 function normalisePrograms(v: unknown, depts: DeptConfig[]): ProgramConfig[] {
@@ -261,11 +344,34 @@ function normaliseRoomGroups(v: unknown, buildings: BuildingConfig[]): RoomGroup
     : DEFAULT_CONFIG.roomGroups.map(g => ({ ...g, features: [...g.features] }))
 }
 
-function normaliseFaculty(v: unknown): FacultyConfig {
+/**
+ * Per-designation loads.
+ *
+ * A project saved before these existed carries none, and gets the defaults. A
+ * ceiling below its own floor is a data error that would make the designation
+ * unschedulable, so the floor yields rather than the cap.
+ */
+function normaliseRankLoads(v: unknown): Partial<Record<StaffRank, RankLoad>> {
+  const raw = asObject(v)
+  const out: Partial<Record<StaffRank, RankLoad>> = {}
+  for (const rank of STAFF_RANKS) {
+    const entry = raw[rank]
+    if (!entry || typeof entry !== 'object') continue
+    const e = asObject(entry)
+    const fallback = DEFAULT_RANK_LOADS[rank] ?? { min: 0, max: 18 }
+    const max = Math.max(0, asNumber(e.max, fallback.max))
+    const min = Math.max(0, asNumber(e.min, fallback.min))
+    out[rank] = { min: Math.min(min, max), max }
+  }
+  return Object.keys(out).length > 0 ? out : { ...DEFAULT_RANK_LOADS }
+}
+
+function normaliseStaff(v: unknown): StaffConfig {
   const f = asObject(v)
-  const d = DEFAULT_CONFIG.faculty
+  const d = DEFAULT_CONFIG.staff
   const mix = asObject(f.mix)
   return {
+    loadByRank: normaliseRankLoads(f.loadByRank),
     total: Math.max(0, Math.trunc(asNumber(f.total, d.total))),
     mix: {
       professor: Math.max(0, asNumber(mix.professor, d.mix.professor)),
@@ -315,9 +421,9 @@ function normaliseOverrides(
   /* Each key is only materialised when the project actually carried a list.
      An absent key means "still generated", which is not the same as "empty". */
 
-  if (Array.isArray(o.faculty)) {
+  if (Array.isArray(o.staff)) {
     const seen = new Set<string>()
-    out.faculty = o.faculty.map((raw, i) => {
+    out.staff = o.staff.map((raw, i) => {
       const f = asObject(raw)
       const dept = asString(f.dept, fallbackDept)
       const primary = [...new Set(asStringList(f.courseIds))]
@@ -331,7 +437,7 @@ function normaliseOverrides(
         staffCode: asString(f.staffCode, ''),
         name: asString(f.name, `Staff member ${i + 1}`),
         dept: deptCodes.has(dept) ? dept : fallbackDept,
-        rank: asString(f.rank, 'Assistant Professor') as FacultyRecord['rank'],
+        rank: asString(f.rank, 'Assistant Professor') as StaffRecord['rank'],
         employment: oneOf<EmploymentType>(f.employment, EMPLOYMENT_TYPES, 'Full-time'),
         email: asString(f.email, ''),
         programIds: [...new Set(asStringList(f.programIds))].filter(id => programIds.has(id)),
@@ -359,6 +465,8 @@ function normaliseOverrides(
           ? f.homeBuildingId
           : undefined,
         onSabbatical: asBool(f.onSabbatical, false),
+        // absent means a project saved before the flag existed: everyone was current
+        active: asBool(f.active, true),
         needsAccessibleRoom: asBool(f.needsAccessibleRoom, false),
       }
     })
@@ -417,20 +525,97 @@ function normaliseOverrides(
     out.sections = sections
   }
 
+  if (o.shifts && typeof o.shifts === 'object' && !Array.isArray(o.shifts)) {
+    const shifts: Record<string, string> = {}
+    for (const [key, value] of Object.entries(o.shifts as Unknown)) {
+      if (typeof value === 'string' && value !== '') shifts[key] = value
+    }
+    out.shifts = shifts
+  }
+
+  if (o.profiles && typeof o.profiles === 'object' && !Array.isArray(o.profiles)) {
+    const profiles: Record<string, string> = {}
+    for (const [key, value] of Object.entries(o.profiles as Unknown)) {
+      if (typeof value === 'string' && value !== '') profiles[key] = value
+    }
+    out.profiles = profiles
+  }
+
   return out
+}
+
+/**
+ * Profiles carry only the fields a batch changes, so an absent key is a real
+ * statement ("no difference") and must not be filled in with a default. Only
+ * values that are actually present and usable survive.
+ */
+function normaliseProfiles(v: unknown, programIds: Set<string>): Profile[] {
+  const seen = new Set<string>()
+  const list: Profile[] = []
+  const keys = [
+    'coreCourses', 'labCourses', 'electiveCourses',
+    'coreWeekly', 'labBlock', 'electiveEnrolment',
+  ] as const
+
+  for (const [i, raw] of asArray(v).entries()) {
+    const p = asObject(raw)
+    const policy: Record<string, Partial<CoursePolicy>> = {}
+    for (const [programId, value] of Object.entries(asObject(p.policy))) {
+      if (!programIds.has(programId)) continue
+      const fields = asObject(value)
+      const partial: Partial<CoursePolicy> = {}
+      for (const k of keys) {
+        if (!(k in fields)) continue
+        const n = asNumber(fields[k], NaN)
+        if (Number.isFinite(n)) partial[k] = Math.max(0, Math.trunc(n))
+      }
+      if (Object.keys(partial).length > 0) policy[programId] = partial
+    }
+    list.push({
+      id: claimId(seen, asString(p.id, `profile-${i + 1}`)),
+      name: asString(p.name, `Profile ${i + 1}`),
+      batchLabel: typeof p.batchLabel === 'string' ? p.batchLabel : '',
+      archived: asBool(p.archived, false),
+      policy,
+    })
+  }
+
+  /* Never leave the institution without a live profile: `policyFor` falls back
+     to the first unarchived one, and with none it would silently ignore every
+     profile assignment instead of saying so. */
+  if (list.every(p => p.archived)) {
+    list.push({
+      id: 'profile-current', name: 'Current curriculum', batchLabel: '',
+      archived: false, policy: {},
+    })
+  }
+  return list
 }
 
 function normaliseCustom(v: unknown): CustomConstraint[] {
   // Custom rules are re-checked against the template registry when they are
-  // compiled; here we only guarantee a list of plausibly-shaped entries.
+  // compiled; here we only guarantee a list of plausibly-shaped entries, and
+  // migrate the one scope kind that has been renamed.
   const seen = new Set<string>()
-  return asArray(v).filter((raw): raw is CustomConstraint => {
+  const out: CustomConstraint[] = []
+  for (const raw of asArray(v)) {
     const c = asObject(raw)
-    if (typeof c.id !== 'string' || typeof c.template !== 'string') return false
-    if (seen.has(c.id)) return false
+    if (typeof c.id !== 'string' || typeof c.template !== 'string') continue
+    if (seen.has(c.id)) continue
     seen.add(c.id)
-    return true
-  })
+
+    const scope = asObject(c.scope)
+    const rawKind = typeof scope.kind === 'string' ? scope.kind : 'all'
+    const migrated = LEGACY_SCOPE_KINDS[rawKind]
+    const known = (SCOPE_KINDS as readonly string[]).includes(rawKind)
+    const kind: ScopeKind = migrated ?? (known ? rawKind as ScopeKind : 'all')
+
+    out.push({
+      ...(c as unknown as CustomConstraint),
+      scope: { kind, id: typeof scope.id === 'string' ? scope.id : undefined },
+    })
+  }
+  return out
 }
 
 /* ------------------------------------------------------------------ *
@@ -448,8 +633,12 @@ export function normaliseConfig(input: unknown): SetupConfig {
   const d = DEFAULT_CONFIG
 
   const campuses = normaliseCampuses(raw.campuses)
-  const departments = normaliseDepartments(raw.departments)
+  const faculties = normaliseFaculties(raw.faculties)
+  const schools = normaliseSchools(raw.schools, faculties)
+  rootHierarchy(faculties, schools)
+  const departments = normaliseDepartments(raw.departments, schools)
   const programs = normalisePrograms(raw.programs, departments)
+  const profiles = normaliseProfiles(raw.profiles, new Set(programs.map(p => p.id)))
   const buildings = normaliseBuildings(raw.buildings, campuses)
   const roomGroups = normaliseRoomGroups(raw.roomGroups, buildings)
 
@@ -462,11 +651,14 @@ export function normaliseConfig(input: unknown): SetupConfig {
     },
     calendar: normaliseCalendar(raw.calendar),
     campuses,
+    faculties,
+    schools,
     departments,
+    profiles,
     programs,
     buildings,
     roomGroups,
-    faculty: normaliseFaculty(raw.faculty),
+    staff: normaliseStaff(raw.staff),
     equipment: normaliseEquipment(raw.equipment),
     seed: Math.trunc(asNumber(raw.seed, d.seed)) || d.seed,
     overrides: normaliseOverrides(raw.overrides, { departments, buildings, programs }),

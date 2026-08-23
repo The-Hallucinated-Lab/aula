@@ -11,7 +11,7 @@
  */
 
 import {
-  canTeach, mulberry32, shuffled,
+  canTeach, fitsShift, minutesToLabel, mulberry32, shuffled,
   type Bottleneck, type Cohort, type Course, type Institution, type Session,
   type SolveReport, type TimeGrid, type Unplaced, type Violation,
 } from '../data/model'
@@ -22,7 +22,7 @@ import { customCost, customViolation } from './customRules'
 import { Occupancy } from './occupancy'
 import { RULES, isImplemented } from './rules'
 import {
-  buildContext, type ActiveRule, type Candidate, type EngineCtx,
+  buildContext, slotEndMinutes, type ActiveRule, type Candidate, type EngineCtx,
 } from './context'
 
 export interface SolveInput {
@@ -91,7 +91,7 @@ interface Demand {
   /** pre-filtered rooms that could physically host it */
   rooms: string[]
   /** qualified instructors, least-loaded first at build time */
-  faculty: string[]
+  staff: string[]
   /** lower = place earlier */
   slack: number
 }
@@ -112,7 +112,7 @@ function buildDemands(inst: Institution): Demand[] {
         if (r.capacity < headcount) return false
         return course.requires.every(f => r.features.includes(f))
       })
-      const faculty = inst.faculty.filter(f => canTeach(f, course, headcount))
+      const staff = inst.staff.filter(f => canTeach(f, course, headcount))
 
       demands.push({
         courseId: course.id,
@@ -121,9 +121,9 @@ function buildDemands(inst: Institution): Demand[] {
         length: Math.max(1, course.blockLength),
         headcount,
         rooms: rooms.map(r => r.id),
-        faculty: faculty.map(f => f.id),
+        staff: staff.map(f => f.id),
         // fewer options and bigger rooms => schedule first
-        slack: (rooms.length || 0.2) * (faculty.length || 0.2) - headcount / 100,
+        slack: (rooms.length || 0.2) * (staff.length || 0.2) - headcount / 100,
       })
     }
   }
@@ -138,10 +138,43 @@ function buildDemands(inst: Institution): Demand[] {
 
 export interface Rejection { code: string; label: string; message: string }
 
+/** Reported like a constraint code, but not one — see `structuralFailure`. */
+export const SHIFT_CODE = 'SHIFT'
+
+/**
+ * Gates that are properties of the institution rather than catalogue rules.
+ *
+ * Shift membership belongs here for the same reason qualification does (D-41):
+ * a morning-shift section has no students on campus in the evening, so an
+ * evening placement is not a low-scoring option, it is not an option. It also
+ * *cannot* be a catalogue rule — `activeRules` only ever activates rules a
+ * numbered row references, and the published 1–500 range is closed.
+ *
+ * Every placement path in this file funnels through `firstHardFailure` or
+ * `allHardFailures`, so checking here covers the solver, the exhaustive sweep,
+ * the displacement pass and interactive drag-and-drop alike. Adding it to only
+ * the search loop would leave the user able to drag a class out of its shift.
+ */
+export function structuralFailure(cand: Candidate, ctx: EngineCtx): Rejection | null {
+  const w = ctx.shiftById.get(cand.cohort.shiftId)
+  if (w && !fitsShift(w, cand.slot, cand.length)) {
+    const from = ctx.grid.labels[w.fromSlot] ?? '—'
+    const to = minutesToLabel(slotEndMinutes(ctx.grid, w.toSlot, 1))
+    return {
+      code: SHIFT_CODE,
+      label: `${w.name} — ${cand.cohort.name}`,
+      message: `${cand.cohort.name} is taught in the ${w.name} (${from}–${to}); this slot falls outside it`,
+    }
+  }
+  return null
+}
+
 /** Run every enabled hard rule. Returns the first failure, or null. */
 export function firstHardFailure(
   cand: Candidate, occ: Occupancy, ctx: EngineCtx,
 ): Rejection | null {
+  const structural = structuralFailure(cand, ctx)
+  if (structural) return structural
   for (const rule of ctx.hard) {
     const impl = RULES[rule.def.rule as RuleKey]
     const msg = impl?.check?.(cand, occ, ctx, rule.params)
@@ -159,6 +192,8 @@ export function allHardFailures(
   cand: Candidate, occ: Occupancy, ctx: EngineCtx,
 ): Rejection[] {
   const out: Rejection[] = []
+  const structural = structuralFailure(cand, ctx)
+  if (structural) out.push(structural)
   for (const rule of ctx.hard) {
     const impl = RULES[rule.def.rule as RuleKey]
     const msg = impl?.check?.(cand, occ, ctx, rule.params)
@@ -227,9 +262,9 @@ export function solve(input: SolveInput): SolveReport {
     // Rooms and instructors, shuffled per demand so the seed genuinely varies
     // the outcome without ever loosening a constraint.
     const roomPool = shuffled(rng, demand.rooms).slice(0, 14)
-    const facultyPool = demand.faculty
+    const staffPool = demand.staff
       .slice()
-      .sort((a, b) => occ.facultyWeekHours(a) - occ.facultyWeekHours(b))
+      .sort((a, b) => occ.staffWeekHours(a) - occ.staffWeekHours(b))
       .slice(0, 6)
 
     let toPlace = demand.remaining
@@ -251,7 +286,7 @@ export function solve(input: SolveInput): SolveReport {
       bump(blockedCount, 'C004')
       continue
     }
-    if (demand.faculty.length === 0) {
+    if (demand.staff.length === 0) {
       unplaced.push({
         courseId: course.id,
         courseLabel: `${course.code} ${course.name}`,
@@ -275,6 +310,8 @@ export function solve(input: SolveInput): SolveReport {
      * caller retries exhaustively — every day, every slot, every room and
      * instructor, taking the first legal placement rather than the prettiest.
      */
+    const shiftWindow = ctx.shiftById.get(cohort.shiftId)
+
     const findPlacement = (exhaustive: boolean): { cand: Candidate; cost: number } | null => {
       let best: { cand: Candidate; cost: number } | null = null
       let evaluated = 0
@@ -284,22 +321,25 @@ export function solve(input: SolveInput): SolveReport {
       const rooms: (string | null)[] = course.kind === 'Online'
         ? [null]
         : (exhaustive ? demand.rooms : roomPool)
-      const staff = exhaustive ? demand.faculty : facultyPool
+      const staff = exhaustive ? demand.staff : staffPool
 
       search:
       for (const day of days) {
         for (const slot of slotOrder) {
           if (slot + demand.length > grid.slots) continue
+          // Cheaper here than as a rejection: the shift is fixed for the whole
+          // demand, so slots outside it are never worth building a candidate for.
+          if (shiftWindow && !fitsShift(shiftWindow, slot, demand.length)) continue
 
           for (const fid of staff) {
-            const faculty = ctx.facultyById.get(fid)
-            if (!faculty) continue
+            const staff = ctx.staffById.get(fid)
+            if (!staff) continue
 
             for (const rid of rooms) {
               const room = rid ? ctx.roomById.get(rid) ?? null : null
 
               const cand: Candidate = {
-                course, cohort, faculty, room,
+                course, cohort, staff, room,
                 day, slot, length: demand.length,
                 headcount: demand.headcount,
               }
@@ -371,7 +411,7 @@ export function solve(input: SolveInput): SolveReport {
       const session: Session = {
         id: `s-${sid++}`,
         courseId: c.course.id,
-        facultyId: c.faculty.id,
+        staffId: c.staff.id,
         cohortId: c.cohort.id,
         roomId: c.room?.id ?? '',
         day: c.day,
@@ -441,7 +481,7 @@ function runAudits(
     for (let k = 0; k < s.length; k++) {
       const slot = s.slot + k
       const keys: [string, string][] = [
-        [`f:${s.facultyId}:${s.day}:${slot}`, 'Instructor double-booked'],
+        [`f:${s.staffId}:${s.day}:${slot}`, 'Instructor double-booked'],
         [`g:${s.cohortId}:${s.day}:${slot}`, 'Cohort double-booked'],
       ]
       if (s.roomId) keys.push([`r:${s.roomId}:${s.day}:${slot}`, 'Room double-booked'])
@@ -500,11 +540,11 @@ export function checkMove(
 
   const course = ctx.courseById.get(moving.courseId)!
   const cohort = ctx.cohortById.get(moving.cohortId)!
-  const faculty = ctx.facultyById.get(moving.facultyId)!
+  const staff = ctx.staffById.get(moving.staffId)!
   const headcount = course.enrolment ?? cohort.size
 
   const base: Omit<Candidate, 'room'> = {
-    course, cohort, faculty, day, slot, length: moving.length, headcount,
+    course, cohort, staff, day, slot, length: moving.length, headcount,
   }
 
   const currentRoom = ctx.roomById.get(moving.roomId) ?? null
@@ -587,9 +627,9 @@ function tryDisplacement(
 
   for (const day of grid.days) {
     for (let slot = 0; slot + demand.length <= grid.slots; slot++) {
-      for (const fid of demand.faculty) {
-        const faculty = ctx.facultyById.get(fid)
-        if (!faculty) continue
+      for (const fid of demand.staff) {
+        const staff = ctx.staffById.get(fid)
+        if (!staff) continue
 
         for (const rid of demand.rooms) {
           const room = ctx.roomById.get(rid)
@@ -612,7 +652,7 @@ function tryDisplacement(
           const trial = rebuild(ctx.inst, without)
 
           const candidate: Candidate = {
-            course, cohort, faculty, room,
+            course, cohort, staff, room,
             day, slot, length: demand.length,
             headcount: demand.headcount,
           }
@@ -622,7 +662,7 @@ function tryDisplacement(
           const placedSession: Session = {
             id: `s-${req.sid}`,
             courseId: course.id,
-            facultyId: faculty.id,
+            staffId: staff.id,
             cohortId: cohort.id,
             roomId: room.id,
             day, slot, length: demand.length,
@@ -652,8 +692,8 @@ function rehome(
 ): Session | null {
   const course = ctx.courseById.get(session.courseId)
   const cohort = ctx.cohortById.get(session.cohortId)
-  const faculty = ctx.facultyById.get(session.facultyId)
-  if (!course || !cohort || !faculty) return null
+  const staff = ctx.staffById.get(session.staffId)
+  if (!course || !cohort || !staff) return null
 
   const headcount = course.enrolment ?? cohort.size
   const rooms = ctx.inst.rooms.filter(r =>
@@ -673,7 +713,7 @@ function rehome(
     for (const room of rooms) {
       if (day === session.day && slot === session.slot && room.id === session.roomId) continue
       const candidate: Candidate = {
-        course, cohort, faculty, room, day, slot, length: session.length, headcount,
+        course, cohort, staff, room, day, slot, length: session.length, headcount,
       }
       if (firstHardFailure(candidate, occ, ctx)) continue
       return { ...session, roomId: room.id, day, slot }

@@ -1,13 +1,14 @@
 import { useMemo, useState } from 'react'
 import { Dialog, DialogSection } from './Dialog'
-import { Field, NumberInput, Switch, TextInput } from './ui'
+import { Combobox, Field, NumberInput, Switch, TextInput } from './ui'
 import { useApp } from '../store'
 import { HELP } from '../data/help'
 import {
-  COURSE_KINDS, DAY_NAMES, DAY_SHORT, EMPLOYMENT_TYPES, FACULTY_RANKS, ROOM_KINDS,
-  type CourseKind, type EmploymentType, type FacultyRank, type RoomKind,
+  COURSE_KINDS, DAY_NAMES, DAY_SHORT, EMPLOYMENT_TYPES, STAFF_RANKS, SELECTABLE_ROOM_KINDS,
+  type CourseKind, type EmploymentType, type StaffRank, type RoomKind,
 } from '../data/model'
-import { PREFERRED_SHIFTS, type FacultyRecord } from '../data/records'
+import { PREFERRED_SHIFTS, type StaffRecord } from '../data/records'
+import { loadForRank } from '../data/config'
 
 /**
  * Staff intake.
@@ -22,19 +23,19 @@ import { PREFERRED_SHIFTS, type FacultyRecord } from '../data/records'
  * contract and availability allow, and where they are based. Every field
  * reaches the solver; the hint under each one says how.
  */
-export function FacultyDialog(props: {
+export function StaffDialog(props: {
   /** the record being edited, or a blank one for a new member of staff */
-  initial: FacultyRecord
+  initial: StaffRecord
   mode: 'add' | 'edit'
-  onSave: (rec: FacultyRecord) => void
+  onSave: (rec: StaffRecord) => void
   onClose: () => void
 }) {
   const { config, institution } = useApp()
-  const [rec, setRec] = useState<FacultyRecord>(props.initial)
+  const [rec, setRec] = useState<StaffRecord>(props.initial)
   const [showAllCourses, setShowAllCourses] = useState(false)
   const [touched, setTouched] = useState(false)
 
-  const set = (p: Partial<FacultyRecord>) => setRec(r => ({ ...r, ...p }))
+  const set = (p: Partial<StaffRecord>) => setRec(r => ({ ...r, ...p }))
   const grid = institution.grid
 
   /* Courses they could be given. Cross-department teaching is normal, so the
@@ -131,36 +132,32 @@ export function FacultyDialog(props: {
             />
           </Field>
           <Field label="Department" hint="Their home department. They can still be given another department's courses below.">
-            <select
-              className="select"
+            <Combobox
               value={rec.dept}
-              aria-label="Department"
-              onChange={e => set({ dept: e.target.value })}
-            >
-              {config.departments.map(d => (
-                <option key={d.code} value={d.code}>{d.code} — {d.name}</option>
-              ))}
-            </select>
+              ariaLabel="Department"
+              options={config.departments.map(d => ({ value: d.code, label: d.code, hint: d.name }))}
+              onChange={v => set({ dept: v })}
+            />
           </Field>
           <Field label="Designation" hint="Professor down to teaching assistant. Seniority breaks ties for the best hours.">
-            <select
-              className="select"
+            <Combobox
               value={rec.rank}
-              aria-label="Designation"
-              onChange={e => set({ rank: e.target.value as FacultyRank })}
-            >
-              {FACULTY_RANKS.map(r => <option key={r} value={r}>{r}</option>)}
-            </select>
+              ariaLabel="Designation"
+              options={STAFF_RANKS.map(r => ({
+                value: r,
+                label: r,
+                hint: `${loadForRank(config.staff, r).min}-${loadForRank(config.staff, r).max} h/wk`,
+              }))}
+              onChange={v => set({ rank: v as StaffRank })}
+            />
           </Field>
           <Field label="Employment type" hint={HELP.employment}>
-            <select
-              className="select"
+            <Combobox
               value={rec.employment}
-              aria-label="Employment type"
-              onChange={e => set({ employment: e.target.value as EmploymentType })}
-            >
-              {EMPLOYMENT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-            </select>
+              ariaLabel="Employment type"
+              options={EMPLOYMENT_TYPES.map(t => ({ value: t, label: t }))}
+              onChange={v => set({ employment: v as EmploymentType })}
+            />
           </Field>
         </div>
       </DialogSection>
@@ -295,14 +292,12 @@ export function FacultyDialog(props: {
             />
           </Field>
           <Field label="Preferred shift" hint={HELP.preferredShift}>
-            <select
-              className="select"
+            <Combobox
               value={rec.preferredShift}
-              aria-label="Preferred shift"
-              onChange={e => set({ preferredShift: e.target.value as FacultyRecord['preferredShift'] })}
-            >
-              {PREFERRED_SHIFTS.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-            </select>
+              ariaLabel="Preferred shift"
+              options={PREFERRED_SHIFTS.map(o => ({ value: o.id, label: o.label }))}
+              onChange={v => set({ preferredShift: v as StaffRecord['preferredShift'] })}
+            />
           </Field>
         </div>
 
@@ -374,26 +369,26 @@ export function FacultyDialog(props: {
       >
         <div className="field-grid">
           <Field label="Home building" hint={HELP.homeBuilding}>
-            <select
-              className="select"
+            <Combobox
               value={rec.homeBuildingId ?? ''}
-              aria-label="Home building"
-              onChange={e => set({ homeBuildingId: e.target.value || undefined })}
-            >
-              <option value="">No anchor</option>
-              {config.buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-            </select>
+              ariaLabel="Home building"
+              options={[
+                { value: '', label: 'No anchor' },
+                ...config.buildings.map(b => ({ value: b.id, label: b.name })),
+              ]}
+              onChange={v => set({ homeBuildingId: v || undefined })}
+            />
           </Field>
           <Field label="Preferred room type" hint={HELP.preferredRoomKind}>
-            <select
-              className="select"
+            <Combobox
               value={rec.preferredRoomKind ?? ''}
-              aria-label="Preferred room type"
-              onChange={e => set({ preferredRoomKind: (e.target.value || undefined) as RoomKind | undefined })}
-            >
-              <option value="">No preference</option>
-              {ROOM_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-            </select>
+              ariaLabel="Preferred room type"
+              options={[
+                { value: '', label: 'No preference' },
+                ...SELECTABLE_ROOM_KINDS.map(k => ({ value: k, label: k })),
+              ]}
+              onChange={v => set({ preferredRoomKind: (v || undefined) as RoomKind | undefined })}
+            />
           </Field>
         </div>
 
@@ -415,6 +410,17 @@ export function FacultyDialog(props: {
               onChange={() => set({ onSabbatical: !rec.onSabbatical })}
             />
             <span className="small">On sabbatical — stays on the roster, teaches nothing</span>
+          </label>
+          <label className="row" style={{ gap: 10 }}>
+            <Switch
+              on={rec.active !== false}
+              label="Currently on the staff"
+              onChange={() => set({ active: rec.active === false })}
+            />
+            <span className="small">
+              Currently on the staff — turn off when somebody leaves, rather than
+              deleting them, so the timetables they already appear on still resolve
+            </span>
           </label>
         </div>
       </DialogSection>

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useApp, type SubstituteProposal } from '../store'
-import { Empty, Hero, SERIES } from '../components/ui'
+import { Combobox, Empty, Hero, SERIES } from '../components/ui'
 import {
   DAY_NAMES, DAY_SHORT,
   type AcademicCalendar, type Institution, type Session,
@@ -13,7 +13,7 @@ import { StaleNotice } from '../components/StaleNotice'
 import { Portal } from '../components/Dialog'
 import { blackoutsCovering, meetingsInTerm } from '../data/academicCalendar'
 
-type ViewMode = 'cohort' | 'faculty' | 'room'
+type ViewMode = 'cohort' | 'staff' | 'room'
 
 export function Timetable() {
   const {
@@ -28,15 +28,36 @@ export function Timetable() {
   const [selected, setSelected] = useState<string | null>(null)
   const [dragId, setDragId] = useState<string | null>(null)
   const [hover, setHover] = useState<{ day: number; slot: number; ok: boolean } | null>(null)
-  const [proposals, setProposals] = useState<{ facultyId: string; day: number; items: SubstituteProposal[] } | null>(null)
+  const [proposals, setProposals] = useState<{ staffId: string; day: number; items: SubstituteProposal[] } | null>(null)
 
   const grid = institution.grid
 
   const entities = useMemo(() => (
     view === 'cohort' ? institution.cohorts
-      : view === 'faculty' ? institution.faculty.filter(f => !f.onSabbatical)
+      : view === 'staff' ? institution.staff.filter(f => !f.onSabbatical)
         : institution.rooms
   ), [view, institution])
+
+  /* Two people can share a name — the coordinator's list has several — so a
+     staff option carries the department that tells them apart, and a room
+     carries its building. Searching matches the hint too, so "CSE" narrows to
+     one department's staff without a separate filter. */
+  const entityOptions = useMemo(() => {
+    const deptName = new Map(institution.departments.map(d => [d.id, d.code]))
+    const buildingName = new Map(institution.buildings.map(b => [b.id, b.name]))
+    return entities.map(e => {
+      if (view === 'staff') {
+        const f = e as (typeof institution.staff)[number]
+        return { value: f.id, label: f.name, hint: deptName.get(f.deptId) ?? '' }
+      }
+      if (view === 'room') {
+        const r = e as (typeof institution.rooms)[number]
+        return { value: r.id, label: r.name, hint: buildingName.get(r.buildingId) ?? '' }
+      }
+      const c = e as (typeof institution.cohorts)[number]
+      return { value: c.id, label: c.name, hint: `${c.size} students` }
+    })
+  }, [entities, view, institution])
 
   // keep the selector valid whenever the institution or view changes
   useEffect(() => {
@@ -45,7 +66,7 @@ export function Timetable() {
 
   const visible = useMemo(() => sessions.filter(s =>
     view === 'cohort' ? s.cohortId === entityId
-      : view === 'faculty' ? s.facultyId === entityId
+      : view === 'staff' ? s.staffId === entityId
         : s.roomId === entityId,
   ), [sessions, view, entityId])
 
@@ -113,20 +134,19 @@ export function Timetable() {
         side={
           <div className="row">
             <div className="tabs">
-              {(['cohort', 'faculty', 'room'] as ViewMode[]).map(v => (
+              {(['cohort', 'staff', 'room'] as ViewMode[]).map(v => (
                 <button key={v} className={view === v ? 'active' : ''} onClick={() => switchView(v)}>
-                  {v === 'cohort' ? 'By cohort' : v === 'faculty' ? 'By faculty' : 'By room'}
+                  {v === 'cohort' ? 'By section' : v === 'staff' ? 'By staff' : 'By room'}
                 </button>
               ))}
             </div>
-            <select
-              className="select"
+            <Combobox
               value={entityId}
-              aria-label="Choose what to view"
-              onChange={e => { setEntityId(e.target.value); setSelected(null) }}
-            >
-              {entities.map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
-            </select>
+              ariaLabel="Choose what to view"
+              width={280}
+              options={entityOptions}
+              onChange={v => { setEntityId(v); setSelected(null) }}
+            />
             <button
               className="btn btn-soft"
               title="Export this view as a week grid"
@@ -215,7 +235,7 @@ export function Timetable() {
 
           <DetailPanel
             session={selectedSession}
-            onAbsence={(facultyId, day) => setProposals({ facultyId, day, items: proposeSubstitutes(facultyId, day) })}
+            onAbsence={(staffId, day) => setProposals({ staffId, day, items: proposeSubstitutes(staffId, day) })}
             visibleCount={visible.length}
             view={view}
             locked={locked}
@@ -231,7 +251,7 @@ export function Timetable() {
           institution={institution}
           onClose={() => setProposals(null)}
           onApply={() => {
-            applySubstitutions(proposals.facultyId, proposals.day, proposals.items)
+            applySubstitutions(proposals.staffId, proposals.day, proposals.items)
             const n = proposals.items.filter(p => p.candidateId).length
             toast(`${n} session${n === 1 ? '' : 's'} repaired — rest of the week untouched`, 'ok')
             setProposals(null)
@@ -358,7 +378,7 @@ function Lesson(props: {
 
 function DetailPanel(props: {
   session: Session | null
-  onAbsence: (facultyId: string, day: number) => void
+  onAbsence: (staffId: string, day: number) => void
   visibleCount: number
   view: ViewMode
   locked: Set<string>
@@ -385,19 +405,19 @@ function DetailPanel(props: {
         <div className="divider" style={{ margin: '16px 0' }} />
         <p className="small muted">
           {props.visibleCount} sessions in this {props.view} view
-          {props.view !== 'cohort' && ' · drag is available in cohort view'}.
+          {props.view !== 'cohort' && ' · drag is available in section view'}.
         </p>
       </div>
     )
   }
 
   const course = institution.courses.find(c => c.id === s.courseId)
-  const fac = institution.faculty.find(f => f.id === s.facultyId)
+  const fac = institution.staff.find(f => f.id === s.staffId)
   const room = institution.rooms.find(r => r.id === s.roomId)
   const building = institution.buildings.find(b => b.id === room?.buildingId)
   const cohort = institution.cohorts.find(c => c.id === s.cohortId)
-  const original = s.substitutedFor ? institution.faculty.find(f => f.id === s.substitutedFor) : null
-  const alreadyAbsent = props.absences.has(`${s.facultyId}:${s.day}`)
+  const original = s.substitutedFor ? institution.staff.find(f => f.id === s.substitutedFor) : null
+  const alreadyAbsent = props.absences.has(`${s.staffId}:${s.day}`)
   const pinned = props.locked.has(s.id)
   const grid = institution.grid
   const endLabel = grid.labels[s.slot + s.length] ?? '—'
@@ -432,7 +452,7 @@ function DetailPanel(props: {
           label="Room"
           value={room ? `${room.name} · ${building?.name ?? ''} (seats ${room.capacity})` : 'No room required'}
         />
-        <Row label="Cohort" value={`${cohort.name} · ${cohort.size} students`} />
+        <Row label="Section" value={`${cohort.name} · ${cohort.size} students`} />
         <Row label="Structure" value={`${course.credits} credits · ${course.weekly}×/week · ${course.kind}`} />
         {/* The grid says where; only the calendar says how often. */}
         <Row
@@ -448,7 +468,7 @@ function DetailPanel(props: {
         className="btn btn-danger-soft"
         style={{ width: '100%', justifyContent: 'center' }}
         disabled={alreadyAbsent}
-        onClick={() => props.onAbsence(s.facultyId, s.day)}
+        onClick={() => props.onAbsence(s.staffId, s.day)}
       >
         {alreadyAbsent
           ? `Already marked absent ${DAY_SHORT[s.day]}`
@@ -486,13 +506,13 @@ function LegendRow({ color, ring, label }: { color: string; ring: string; label:
 /* ---------- substitution sheet ---------- */
 
 function SubstituteSheet(props: {
-  data: { facultyId: string; day: number; items: SubstituteProposal[] }
+  data: { staffId: string; day: number; items: SubstituteProposal[] }
   institution: Institution
   onClose: () => void
   onApply: () => void
 }) {
   const { data, institution } = props
-  const absent = institution.faculty.find(f => f.id === data.facultyId)
+  const absent = institution.staff.find(f => f.id === data.staffId)
   const covered = data.items.filter(i => i.candidateId).length
   if (!absent) return null
 

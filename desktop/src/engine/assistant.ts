@@ -59,7 +59,7 @@ export interface BriefingInput {
   report: SolveReport | null
   /** catalogue entries the user has switched off */
   disabled: ConstraintDef[]
-  facultyLoad: Map<string, number>
+  staffLoad: Map<string, number>
 }
 
 /**
@@ -77,7 +77,7 @@ export function buildBriefing(input: BriefingInput): string {
   lines.push('INSTITUTION')
   lines.push(`Departments: ${inst.departments.map(d => d.code).join(', ')}`)
   lines.push(`Cohorts (${inst.cohorts.length}): ${inst.cohorts.map(c => c.name).join(', ')}`)
-  lines.push(`Rooms: ${inst.rooms.length}. Staff: ${inst.faculty.length}. Courses: ${inst.courses.length}.`)
+  lines.push(`Rooms: ${inst.rooms.length}. Staff: ${inst.staff.length}. Courses: ${inst.courses.length}.`)
   lines.push(`Teaching days: ${grid.days.map(d => DAY_NAMES[d]).join(', ')}`)
   lines.push(`Slots per day: ${grid.slots} starting ${grid.labels.join(', ')}`)
   lines.push('')
@@ -108,8 +108,8 @@ export function buildBriefing(input: BriefingInput): string {
     lines.push('')
   }
 
-  const loads = inst.faculty
-    .map(f => ({ name: f.name, rank: f.rank, hours: input.facultyLoad.get(f.id) ?? 0, cap: f.maxPerWeek }))
+  const loads = inst.staff
+    .map(f => ({ name: f.name, rank: f.rank, hours: input.staffLoad.get(f.id) ?? 0, cap: f.maxPerWeek }))
     .sort((a, b) => b.hours - a.hours)
   lines.push('BUSIEST STAFF')
   for (const l of loads.slice(0, 8)) lines.push(`  ${l.name} (${l.rank}): ${l.hours} of ${l.cap} hours`)
@@ -126,7 +126,7 @@ export function buildBriefing(input: BriefingInput): string {
         .map(s => {
           const c = inst.courses.find(x => x.id === s.courseId)
           const r = inst.rooms.find(x => x.id === s.roomId)
-          const f = inst.faculty.find(x => x.id === s.facultyId)
+          const f = inst.staff.find(x => x.id === s.staffId)
           return `${grid.labels[s.slot]} ${c?.code ?? '?'} (${r?.name ?? 'no room'}, ${f?.name ?? 'unstaffed'})`
         })
       return onDay.length ? `    ${DAY_NAMES[day]}: ${onDay.join('; ')}` : null

@@ -8,7 +8,7 @@
 import { CATALOGUE, DOMAINS } from './constraints/catalogue'
 import type { ConstraintState } from './constraints/types'
 import { DAY_NAMES, type Institution, type Session, type SolveReport } from './model'
-import { CALENDAR_KINDS } from './model'
+import { CALENDAR_KINDS, sessionMinutes } from './model'
 import { meetingsInTerm, prettyRange } from './academicCalendar'
 
 const esc = (v: unknown): string => {
@@ -22,7 +22,7 @@ const toCsv = (rows: unknown[][]): string =>
 /** One row per scheduled session — the file a registrar actually wants. */
 export function timetableCsv(inst: Institution, sessions: Session[]): string {
   const course = new Map(inst.courses.map(c => [c.id, c]))
-  const faculty = new Map(inst.faculty.map(f => [f.id, f]))
+  const staff = new Map(inst.staff.map(f => [f.id, f]))
   const room = new Map(inst.rooms.map(r => [r.id, r]))
   const building = new Map(inst.buildings.map(b => [b.id, b]))
   const cohort = new Map(inst.cohorts.map(c => [c.id, c]))
@@ -40,16 +40,16 @@ export function timetableCsv(inst: Institution, sessions: Session[]): string {
 
   for (const s of ordered) {
     const c = course.get(s.courseId)
-    const f = faculty.get(s.facultyId)
+    const f = staff.get(s.staffId)
     const r = room.get(s.roomId)
     const g = cohort.get(s.cohortId)
-    const sub = s.substitutedFor ? faculty.get(s.substitutedFor) : undefined
+    const sub = s.substitutedFor ? staff.get(s.substitutedFor) : undefined
 
     rows.push([
       DAY_NAMES[s.day],
       grid.labels[s.slot] ?? '',
       grid.labels[s.slot + s.length] ?? endLabel(inst, s),
-      s.length * grid.slotMinutes,
+      sessionMinutes(grid, s.slot, s.length),
       c?.code ?? '', c?.name ?? '', c?.kind ?? '',
       g?.name ?? '', g?.size ?? '',
       f?.name ?? '', f?.rank ?? '',
@@ -63,7 +63,7 @@ export function timetableCsv(inst: Institution, sessions: Session[]): string {
 
 function endLabel(inst: Institution, s: Session): string {
   const grid = inst.grid
-  const mins = (grid.starts[s.slot] ?? 0) + s.length * grid.slotMinutes
+  const mins = (grid.starts[s.slot] ?? 0) + sessionMinutes(grid, s.slot, s.length)
   return `${String(Math.floor(mins / 60)).padStart(2, '0')}:${String(mins % 60).padStart(2, '0')}`
 }
 
@@ -93,15 +93,15 @@ export function constraintsCsv(states: Record<string, ConstraintState>, enforced
   return toCsv(rows)
 }
 
-/** Faculty workload sheet — what a union representative asks for (constraint 492). */
+/** Staff workload sheet — what a union representative asks for (constraint 492). */
 export function workloadCsv(inst: Institution, sessions: Session[]): string {
   const hours = new Map<string, number>()
   const days = new Map<string, Set<number>>()
   for (const s of sessions) {
-    hours.set(s.facultyId, (hours.get(s.facultyId) ?? 0) + s.length)
-    const d = days.get(s.facultyId) ?? new Set<number>()
+    hours.set(s.staffId, (hours.get(s.staffId) ?? 0) + s.length)
+    const d = days.get(s.staffId) ?? new Set<number>()
     d.add(s.day)
-    days.set(s.facultyId, d)
+    days.set(s.staffId, d)
   }
   const dept = new Map(inst.departments.map(d => [d.id, d]))
 
@@ -109,7 +109,7 @@ export function workloadCsv(inst: Institution, sessions: Session[]): string {
     'Instructor', 'Department', 'Rank', 'Scheduled hours', 'Weekly cap',
     'Utilisation %', 'Teaching days', 'On sabbatical',
   ]]
-  for (const f of inst.faculty) {
+  for (const f of inst.staff) {
     const h = hours.get(f.id) ?? 0
     rows.push([
       f.name, dept.get(f.deptId)?.name ?? '', f.rank, h, f.maxPerWeek,
@@ -144,22 +144,22 @@ export function projectJson(
 export function gridCsv(
   inst: Institution,
   sessions: Session[],
-  view: 'cohort' | 'faculty' | 'room',
+  view: 'cohort' | 'staff' | 'room',
   entityId: string,
 ): string {
   const grid = inst.grid
   const course = new Map(inst.courses.map(c => [c.id, c]))
   const room = new Map(inst.rooms.map(r => [r.id, r]))
-  const faculty = new Map(inst.faculty.map(f => [f.id, f]))
+  const staff = new Map(inst.staff.map(f => [f.id, f]))
   const cohort = new Map(inst.cohorts.map(c => [c.id, c]))
 
   const mine = sessions.filter(s =>
     view === 'cohort' ? s.cohortId === entityId
-      : view === 'faculty' ? s.facultyId === entityId
+      : view === 'staff' ? s.staffId === entityId
         : s.roomId === entityId)
 
   const title = view === 'cohort' ? cohort.get(entityId)?.name
-    : view === 'faculty' ? faculty.get(entityId)?.name
+    : view === 'staff' ? staff.get(entityId)?.name
       : room.get(entityId)?.name
 
   const cell = (day: number, slot: number): string => {
@@ -168,7 +168,7 @@ export function gridCsv(
     const c = course.get(s.courseId)
     const parts = [c?.code ?? '', c?.name ?? '']
     if (view !== 'room') parts.push(room.get(s.roomId)?.name ?? 'no room')
-    if (view !== 'faculty') parts.push(faculty.get(s.facultyId)?.name ?? '')
+    if (view !== 'staff') parts.push(staff.get(s.staffId)?.name ?? '')
     if (view !== 'cohort') parts.push(cohort.get(s.cohortId)?.name ?? '')
     return parts.filter(Boolean).join(' · ')
   }

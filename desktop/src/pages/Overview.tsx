@@ -35,7 +35,7 @@ export function Overview() {
         <main className="page">
           <Empty
             title={solving ? (phase || 'Solving…') : 'No timetable generated yet'}
-            desc={`Your configuration currently describes ${summary.students.toLocaleString()} students across ${summary.cohorts} cohorts, ${summary.rooms} rooms and ${summary.facultyTotal} staff.`}
+            desc={`Your configuration currently describes ${summary.students.toLocaleString()} students across ${summary.cohorts} cohorts, ${summary.rooms} rooms and ${summary.staffTotal} staff.`}
             action={<button className="btn btn-primary" onClick={() => navigate('/setup')}>Start setup</button>}
           />
         </main>
@@ -86,7 +86,7 @@ export function Overview() {
           <Stat
             label="Protected breaks"
             value={`${Math.round(metrics.lunchProtected * 100)}%`}
-            note="cohort-days keeping a lunch slot"
+            note="section-days keeping a lunch slot"
             tone={metrics.lunchProtected > 0.95 ? 'good' : 'bad'}
           />
         </div>

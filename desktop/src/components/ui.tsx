@@ -1,4 +1,5 @@
-import type { ChangeEvent, ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import type { ChangeEvent, KeyboardEvent, ReactNode } from 'react'
 
 export const SERIES = [
   'var(--series-1)', 'var(--series-2)', 'var(--series-3)',
@@ -212,4 +213,185 @@ export function Meter(props: { value: number; label?: string; tone?: string }) {
 /** Small labelled pill used for counts across the app. */
 export function Pill(props: { tone?: 'hard' | 'soft' | 'accent' | 'ok' | 'warn' | 'danger'; children: ReactNode; mono?: boolean }) {
   return <span className={`chip chip-${props.tone ?? 'soft'} ${props.mono ? 'mono' : ''}`}>{props.children}</span>
+}
+
+/* ------------------------------------------------------------------ *
+ * Combobox — a select you can type into
+ *
+ * The interface it replaces was a native `<select>`. That is fine for five
+ * options and unusable for the real thing: choosing one instructor out of
+ * several hundred meant scrolling a list ordered by nothing in particular,
+ * several hundred times a semester. Every picker in the app now filters as you
+ * type, and `hint` carries the staff code or department that tells two people
+ * with the same name apart.
+ *
+ * Positioned absolutely inside a relative wrapper rather than fixed: every page
+ * is wrapped in `.fade-in`, whose transform makes it the containing block for
+ * fixed descendants (D-43), and absolute positioning simply does not care.
+ * ------------------------------------------------------------------ */
+
+export interface ComboOption {
+  value: string
+  label: string
+  /** shown after the label — a staff code, a department, a course code */
+  hint?: string
+  /** matched when filtering but never displayed */
+  keywords?: string
+  disabled?: boolean
+}
+
+export function Combobox(props: {
+  value: string
+  options: ComboOption[]
+  onChange: (value: string) => void
+  placeholder?: string
+  /** shown when there is nothing to choose from, so the reason is visible */
+  emptyText?: string
+  id?: string
+  ariaLabel?: string
+  disabled?: boolean
+  /** width in px; the wrapper is inline-block so it does not stretch rows */
+  width?: number
+}) {
+  const { options, value, onChange } = props
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const [highlight, setHighlight] = useState(0)
+  const wrapRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLInputElement>(null)
+  const listId = `${props.id ?? 'combo'}-list`
+
+  const selected = options.find(o => o.value === value)
+  const selectedLabel = selected ? selected.label : ''
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (q === '') return options
+    return options.filter(o =>
+      o.label.toLowerCase().includes(q)
+      || (o.hint ?? '').toLowerCase().includes(q)
+      || (o.keywords ?? '').toLowerCase().includes(q))
+  }, [options, query])
+
+  // Close when focus or a click goes elsewhere.
+  useEffect(() => {
+    if (!open) return
+    const away = (e: MouseEvent) => {
+      if (!wrapRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', away)
+    return () => document.removeEventListener('mousedown', away)
+  }, [open])
+
+  // Keep the highlighted row in view while arrowing through a long list.
+  useEffect(() => {
+    if (!open) return
+    const el = document.getElementById(`${listId}-${highlight}`)
+    el?.scrollIntoView({ block: 'nearest' })
+  }, [highlight, open, listId])
+
+  const commit = (option: ComboOption | undefined) => {
+    if (!option || option.disabled) return
+    onChange(option.value)
+    setQuery('')
+    setOpen(false)
+  }
+
+  const openList = () => {
+    if (props.disabled) return
+    setOpen(true)
+    setQuery('')
+    setHighlight(Math.max(0, options.findIndex(o => o.value === value)))
+  }
+
+  const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (!open) { openList(); return }
+      const step = e.key === 'ArrowDown' ? 1 : -1
+      setHighlight(h => {
+        if (matches.length === 0) return 0
+        return (h + step + matches.length) % matches.length
+      })
+      return
+    }
+    if (e.key === 'Enter') {
+      if (open) { e.preventDefault(); commit(matches[highlight]) }
+      return
+    }
+    if (e.key === 'Tab') {
+      // Tab completes to what is highlighted rather than abandoning the edit,
+      // so a name can be typed part-way and finished with one key.
+      if (open && matches.length > 0) commit(matches[highlight])
+      return
+    }
+    if (e.key === 'Escape') {
+      if (open) { e.preventDefault(); setOpen(false); setQuery('') }
+      return
+    }
+    if (e.key === 'Home' && open) { e.preventDefault(); setHighlight(0) }
+    if (e.key === 'End' && open) { e.preventDefault(); setHighlight(matches.length - 1) }
+  }
+
+  return (
+    <div
+      ref={wrapRef}
+      className={`combo ${props.disabled ? 'combo-disabled' : ''}`}
+      style={props.width ? { width: props.width } : undefined}
+    >
+      <input
+        ref={inputRef}
+        id={props.id}
+        className="input combo-input"
+        role="combobox"
+        aria-expanded={open}
+        aria-controls={listId}
+        aria-autocomplete="list"
+        aria-activedescendant={open && matches.length > 0 ? `${listId}-${highlight}` : undefined}
+        aria-label={props.ariaLabel}
+        autoComplete="off"
+        disabled={props.disabled}
+        placeholder={props.placeholder}
+        value={open ? query : selectedLabel}
+        onChange={e => { setQuery(e.target.value); setHighlight(0); if (!open) setOpen(true) }}
+        onFocus={openList}
+        onClick={openList}
+        onKeyDown={onKeyDown}
+      />
+      <span className="combo-mark" aria-hidden>▾</span>
+
+      {open && (
+        <ul className="combo-list" id={listId} role="listbox">
+          {matches.length === 0 && (
+            <li className="combo-empty" role="presentation">
+              {options.length === 0
+                ? (props.emptyText ?? 'Nothing to choose from')
+                : `No match for “${query}”`}
+            </li>
+          )}
+          {matches.map((o, i) => (
+            <li
+              key={o.value}
+              id={`${listId}-${i}`}
+              role="option"
+              aria-selected={o.value === value}
+              aria-disabled={o.disabled}
+              className={`combo-option ${i === highlight ? 'active' : ''} ${o.disabled ? 'disabled' : ''}`}
+              onMouseEnter={() => setHighlight(i)}
+              onMouseDown={e => { e.preventDefault(); commit(o) }}
+              /* `Field` wraps almost every control in a <label>, and a label
+                 forwards clicks to its control as the click's default action.
+                 Without this, choosing an option with the mouse reopens the
+                 list it just closed and shows an empty box over the value the
+                 user picked. Cancelling the default stops the forwarding. */
+              onClick={e => { e.preventDefault(); e.stopPropagation() }}
+            >
+              <span className="combo-label">{o.label}</span>
+              {o.hint && <span className="combo-hint">{o.hint}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
 }

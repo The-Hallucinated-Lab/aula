@@ -10,10 +10,11 @@ import {
 } from './data/constraints/types'
 import { normaliseConfig } from './data/normalise'
 import { generateInstitution } from './data/generator'
+import type { ImportKind } from './data/importers'
 import {
   blankCourse, blankRoom,
-  courseRecordsFrom, facultyRecordsFrom, roomRecordsFrom,
-  type CourseRecord, type FacultyRecord, type RoomRecord,
+  courseRecordsFrom, staffRecordsFrom, roomRecordsFrom,
+  type CourseRecord, type StaffRecord, type RoomRecord,
 } from './data/records'
 import {
   makeCustom,
@@ -33,7 +34,7 @@ import { checkMove as engineCheckMove, type MoveCheck } from './engine/solver'
 export const SCENARIOS: ScenarioProfile[] = [
   {
     id: 'balanced', name: 'Balanced week',
-    tagline: 'Even spread across days, fair faculty load',
+    tagline: 'Even spread across days, fair staff load',
     weights: { gaps: 3, utilization: 2, loadBalance: 5, welfare: 3 },
   },
   {
@@ -123,6 +124,19 @@ interface AppState {
   setConfig: (patch: Partial<SetupConfig>) => void
   replaceConfig: (cfg: SetupConfig) => void
   resetConfig: () => void
+  /**
+   * Institution-level edits held back from storage until confirmed.
+   *
+   * Changing the shape of the institution ripples through every course,
+   * section, room and person derived from it. The review asked for those edits
+   * to accumulate as a draft and be committed deliberately rather than the
+   * moment a digit changes. The preview still moves as you type — you can see
+   * what a change does — but nothing is written until `commitDraft`.
+   */
+  draftConfig: SetupConfig | null
+  editDraft: (patch: Partial<SetupConfig>) => void
+  commitDraft: () => void
+  discardDraft: () => void
   completeSetup: () => Promise<void>
 
   /* solving */
@@ -132,14 +146,14 @@ interface AppState {
   checkMove: (sessionId: string, day: number, slot: number) => MoveCheck
   moveSession: (sessionId: string, day: number, slot: number) => MoveCheck
   toggleLock: (sessionId: string) => void
-  proposeSubstitutes: (facultyId: string, day: number) => SubstituteProposal[]
-  applySubstitutions: (facultyId: string, day: number, proposals: SubstituteProposal[]) => void
+  proposeSubstitutes: (staffId: string, day: number) => SubstituteProposal[]
+  applySubstitutions: (staffId: string, day: number, proposals: SubstituteProposal[]) => void
 
   /* entity editing — see data/records.ts for the materialise-on-edit rule */
-  editFaculty: (rec: FacultyRecord) => void
+  editStaff: (rec: StaffRecord) => void
   /** takes the finished record from the intake dialog, not just a department */
-  addFaculty: (rec: FacultyRecord) => void
-  removeFaculty: (id: string) => void
+  addStaff: (rec: StaffRecord) => void
+  removeStaff: (id: string) => void
   editCourse: (rec: CourseRecord) => void
   addCourse: (deptCode: string, programId: string, year: number) => void
   removeCourse: (id: string) => void
@@ -147,7 +161,9 @@ interface AppState {
   addRoom: (buildingId: string) => void
   removeRoom: (id: string) => void
   setSections: (programId: string, year: number, count: number) => void
-  resetEntity: (kind: 'faculty' | 'courses' | 'rooms' | 'sections') => void
+  resetEntity: (kind: 'staff' | 'courses' | 'rooms' | 'sections') => void
+  /** Replace an entity type wholesale from an imported file. */
+  importEntity: (kind: ImportKind, rows: StaffRecord[] | RoomRecord[] | CourseRecord[]) => void
 
   /* academic calendar */
   setTerm: (start: string, end: string) => void
@@ -258,6 +274,7 @@ export const useApp = create<AppState>((set, get) => ({
   phase: '',
   lastError: null,
   scheduleStale: false,
+  draftConfig: null,
 
   /* ---------------- config ---------------- */
 
@@ -277,10 +294,55 @@ export const useApp = create<AppState>((set, get) => ({
     persist({ ...get(), config })
   },
 
+  editDraft(patch) {
+    const base = get().draftConfig ?? get().config
+    const draftConfig = { ...base, ...patch }
+    const institution = generateInstitution(draftConfig)
+    set({
+      draftConfig,
+      summary: summarise(draftConfig),
+      institution,
+      metrics: computeMetrics(institution, get().sessions),
+      scheduleStale: get().sessions.length > 0,
+    })
+    // deliberately not persisted — that is what makes it a draft
+  },
+
+  commitDraft() {
+    const draftConfig = get().draftConfig
+    if (!draftConfig) return
+    const institution = generateInstitution(draftConfig)
+    set({
+      config: draftConfig,
+      draftConfig: null,
+      summary: summarise(draftConfig),
+      institution,
+      metrics: computeMetrics(institution, get().sessions),
+      scheduleStale: get().sessions.length > 0,
+    })
+    persist({ ...get(), config: draftConfig })
+    get().log('setup', 'Institution changes saved')
+  },
+
+  discardDraft() {
+    if (!get().draftConfig) return
+    const config = get().config
+    const institution = generateInstitution(config)
+    set({
+      draftConfig: null,
+      summary: summarise(config),
+      institution,
+      metrics: computeMetrics(institution, get().sessions),
+    })
+    get().log('setup', 'Institution changes discarded')
+  },
+
   replaceConfig(config) {
     const institution = generateInstitution(config)
     set({
       config,
+      // a draft belongs to the project it was started in
+      draftConfig: null,
       summary: summarise(config),
       institution,
       metrics: computeMetrics(institution, get().sessions),
@@ -294,6 +356,7 @@ export const useApp = create<AppState>((set, get) => ({
     const institution = generateInstitution(config)
     set({
       config,
+      draftConfig: null,
       summary: summarise(config),
       institution,
       metrics: computeMetrics(institution, []),
@@ -420,10 +483,10 @@ export const useApp = create<AppState>((set, get) => ({
     set({ locked })
   },
 
-  proposeSubstitutes(facultyId, day) {
+  proposeSubstitutes(staffId, day) {
     const { sessions, institution, metrics } = get()
-    const affected = sessions.filter(s => s.facultyId === facultyId && s.day === day)
-    const absent = institution.faculty.find(f => f.id === facultyId)
+    const affected = sessions.filter(s => s.staffId === staffId && s.day === day)
+    const absent = institution.staff.find(f => f.id === staffId)
     if (!absent) return []
 
     return affected.map(s => {
@@ -431,11 +494,11 @@ export const useApp = create<AppState>((set, get) => ({
       const busy = new Set(
         sessions
           .filter(x => x.day === day && overlapsSlots(x, s))
-          .map(x => x.facultyId),
+          .map(x => x.staffId),
       )
       const dayHours = new Map<string, number>()
       for (const x of sessions.filter(x => x.day === day)) {
-        dayHours.set(x.facultyId, (dayHours.get(x.facultyId) ?? 0) + x.length)
+        dayHours.set(x.staffId, (dayHours.get(x.staffId) ?? 0) + x.length)
       }
 
       // `canTeach` covers sabbatical, expertise and the group-size ceiling, so a
@@ -443,20 +506,20 @@ export const useApp = create<AppState>((set, get) => ({
       const headcount = course?.enrolment
         ?? institution.cohorts.find(g => g.id === s.cohortId)?.size
         ?? 0
-      const candidates = institution.faculty
+      const candidates = institution.staff
         .filter(f =>
-          f.id !== facultyId
+          f.id !== staffId
           && !!course
           && canTeach(f, course, headcount)
           && !busy.has(f.id)
           && !f.blockedDays.includes(day)
           && (dayHours.get(f.id) ?? 0) + s.length <= f.maxPerDay
-          && (metrics.facultyLoad.get(f.id) ?? 0) + s.length <= f.maxPerWeek)
+          && (metrics.staffLoad.get(f.id) ?? 0) + s.length <= f.maxPerWeek)
         .sort((a, b) => {
           const deptA = a.deptId === absent.deptId ? 0 : 1
           const deptB = b.deptId === absent.deptId ? 0 : 1
           if (deptA !== deptB) return deptA - deptB
-          return (metrics.facultyLoad.get(a.id) ?? 0) - (metrics.facultyLoad.get(b.id) ?? 0)
+          return (metrics.staffLoad.get(a.id) ?? 0) - (metrics.staffLoad.get(b.id) ?? 0)
         })
 
       const best = candidates[0] ?? null
@@ -467,23 +530,23 @@ export const useApp = create<AppState>((set, get) => ({
         candidateId: best?.id ?? null,
         candidateName: best?.name ?? 'No qualified substitute is free',
         sameDept: best ? best.deptId === absent.deptId : false,
-        load: best ? (metrics.facultyLoad.get(best.id) ?? 0) : 0,
+        load: best ? (metrics.staffLoad.get(best.id) ?? 0) : 0,
       }
     })
   },
 
-  applySubstitutions(facultyId, day, proposals) {
+  applySubstitutions(staffId, day, proposals) {
     const { sessions, institution } = get()
     const byId = new Map(proposals.filter(p => p.candidateId).map(p => [p.sessionId, p.candidateId!]))
     const next = sessions.map(s => byId.has(s.id)
-      ? { ...s, facultyId: byId.get(s.id)!, substitutedFor: facultyId }
+      ? { ...s, staffId: byId.get(s.id)!, substitutedFor: staffId }
       : s)
-    const absent = institution.faculty.find(f => f.id === facultyId)
+    const absent = institution.staff.find(f => f.id === staffId)
 
     set(state => ({
       sessions: next,
       metrics: computeMetrics(institution, next),
-      absences: new Set(state.absences).add(`${facultyId}:${day}`),
+      absences: new Set(state.absences).add(`${staffId}:${day}`),
     }))
     get().log(
       'substitute',
@@ -493,23 +556,23 @@ export const useApp = create<AppState>((set, get) => ({
 
   /* ---------------- entity editing ---------------- */
 
-  editFaculty(rec) {
-    const config = withFaculty(get(), list =>
+  editStaff(rec) {
+    const config = withStaff(get(), list =>
       list.some(f => f.id === rec.id)
         ? list.map(f => (f.id === rec.id ? rec : f))
         : [...list, rec])
     applyConfig(set, get, config, 'setup', `Updated ${rec.name}`)
   },
 
-  addFaculty(rec) {
-    const config = withFaculty(get(), list => [...list, rec])
+  addStaff(rec) {
+    const config = withStaff(get(), list => [...list, rec])
     applyConfig(set, get, config, 'setup', `Added ${rec.name} to ${rec.dept}`)
   },
 
-  removeFaculty(id) {
+  removeStaff(id) {
     const state = get()
-    const name = state.institution.faculty.find(f => f.id === id)?.name ?? id
-    const config = withFaculty(state, list => list.filter(f => f.id !== id))
+    const name = state.institution.staff.find(f => f.id === id)?.name ?? id
+    const config = withStaff(state, list => list.filter(f => f.id !== id))
     applyConfig(set, get, config, 'setup', `Removed ${name}`)
   },
 
@@ -532,12 +595,12 @@ export const useApp = create<AppState>((set, get) => ({
     const code = state.institution.courses.find(c => c.id === id)?.code ?? id
     // dropping a course also drops it from every teaching assignment
     let config = withCourses(state, list => list.filter(c => c.id !== id))
-    if (config.overrides?.faculty) {
+    if (config.overrides?.staff) {
       config = {
         ...config,
         overrides: {
           ...config.overrides,
-          faculty: config.overrides.faculty.map(f => ({
+          staff: config.overrides.staff.map(f => ({
             ...f, courseIds: f.courseIds.filter(c => c !== id),
           })),
         },
@@ -580,6 +643,19 @@ export const useApp = create<AppState>((set, get) => ({
       },
     }
     applyConfig(set, get, config, 'setup', `Year ${year} now has ${Math.max(0, count)} section(s)`)
+  },
+
+  importEntity(kind, rows) {
+    /* An import is a materialisation like any other (D-22): from this point the
+       generator stops inventing this entity type and these records are the
+       source of truth. It is deliberately a replacement rather than a merge —
+       a half-merged roster is not something anybody can reason about. */
+    const overrides = { ...get().config.overrides }
+    if (kind === 'staff') overrides.staff = rows as StaffRecord[]
+    else if (kind === 'rooms') overrides.rooms = rows as RoomRecord[]
+    else overrides.courses = rows as CourseRecord[]
+    applyConfig(set, get, { ...get().config, overrides }, 'io',
+      `Imported ${rows.length} ${kind === 'staff' ? 'staff' : kind === 'rooms' ? 'rooms' : 'courses'}`)
   },
 
   resetEntity(kind) {
@@ -720,6 +796,8 @@ export const useApp = create<AppState>((set, get) => ({
     const institution = generateInstitution(config)
     set({
       config,
+      // a draft belongs to the project it was started in
+      draftConfig: null,
       summary: summarise(config),
       states,
       activeScenario: SCENARIOS.some(s => s.id === file.scenario) ? file.scenario : 'balanced',
@@ -767,11 +845,11 @@ const truncate = (s: string, n = 68) => (s.length > n ? `${s.slice(0, n - 1)}…
 type StoreSet = (partial: Partial<AppState>) => void
 type StoreGet = () => AppState
 
-function withFaculty(state: AppState, fn: (list: FacultyRecord[]) => FacultyRecord[]): SetupConfig {
-  const current = state.config.overrides?.faculty ?? facultyRecordsFrom(state.institution)
+function withStaff(state: AppState, fn: (list: StaffRecord[]) => StaffRecord[]): SetupConfig {
+  const current = state.config.overrides?.staff ?? staffRecordsFrom(state.institution)
   return {
     ...state.config,
-    overrides: { ...state.config.overrides, faculty: fn(current) },
+    overrides: { ...state.config.overrides, staff: fn(current) },
   }
 }
 

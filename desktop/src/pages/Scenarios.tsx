@@ -80,7 +80,7 @@ export function Scenarios() {
               <Stat
                 label="Avg gaps"
                 value={metrics.avgGapsPerCohort.toFixed(1)}
-                note="free slots per cohort per week"
+                note="free slots per section per week"
                 tone={metrics.avgGapsPerCohort < 6 ? 'good' : 'bad'}
               />
             </div>

@@ -1,21 +1,29 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../store'
-import { Callout, Field, Hero, Meter, NumberInput, Section, Segmented, Switch, TextInput, SERIES } from '../components/ui'
+import { Callout, Combobox, Field, Hero, Meter, NumberInput, Section, Segmented, Switch, TextInput, SERIES } from '../components/ui'
 import { useToast } from '../components/Toast'
-import { DAY_NAMES, DAY_SHORT, COURSE_KINDS, ROOM_KINDS, type CourseKind, type RoomKind } from '../data/model'
+import { ImportPanel } from '../components/ImportPanel'
+import { DAY_NAMES, DAY_SHORT, COURSE_KINDS, SELECTABLE_ROOM_KINDS, type CourseKind, type RoomKind } from '../data/model'
 import {
-  FEATURE_PRESETS, ROOM_SPECIALISATIONS, blankFaculty, courseRecordsFrom,
-  facultyRecordsFrom, roomRecordsFrom, specialisationById,
-  type CourseRecord, type FacultyRecord, type RoomRecord,
+  FEATURE_PRESETS, ROOM_SPECIALISATIONS, blankStaff, courseRecordsFrom,
+  staffRecordsFrom, roomRecordsFrom, specialisationById,
+  type CourseRecord, type StaffRecord, type RoomRecord,
 } from '../data/records'
 import { HELP } from '../data/help'
 import { StaleNotice } from '../components/StaleNotice'
-import { FacultyDialog } from '../components/FacultyDialog'
+import { StaffDialog } from '../components/StaffDialog'
 
-type Tab = 'faculty' | 'rooms' | 'courses' | 'cohorts'
+type Tab = 'staff' | 'rooms' | 'courses' | 'cohorts'
+
+/* The entity is a cohort throughout the code; institutions call it a section.
+   Renaming the type would touch the engine for no gain, so the local word is
+   applied at the surface. */
+const TAB_LABELS: Record<Tab, string> = {
+  staff: 'Staff', rooms: 'Rooms', courses: 'Courses', cohorts: 'Sections',
+}
 
 export function DataStudio() {
-  const [tab, setTab] = useState<Tab>('faculty')
+  const [tab, setTab] = useState<Tab>('staff')
 
   return (
     <div className="fade-in">
@@ -25,9 +33,9 @@ export function DataStudio() {
         desc="Everything here is editable. The wizard's numbers create a starting institution; the moment you change a person, a room or a course, your records take over and the generator stops inventing that kind of thing."
         side={
           <div className="tabs">
-            {(['faculty', 'rooms', 'courses', 'cohorts'] as Tab[]).map(t => (
+            {(['staff', 'rooms', 'courses', 'cohorts'] as Tab[]).map(t => (
               <button key={t} className={tab === t ? 'active' : ''} onClick={() => setTab(t)}>
-                {t[0].toUpperCase() + t.slice(1)}
+                {TAB_LABELS[t]}
               </button>
             ))}
           </div>
@@ -36,7 +44,7 @@ export function DataStudio() {
 
       <main className="page">
         <StaleNotice />
-        {tab === 'faculty' && <FacultyTab />}
+        {tab === 'staff' && <StaffTab />}
         {tab === 'rooms' && <RoomsTab />}
         {tab === 'courses' && <CoursesTab />}
         {tab === 'cohorts' && <CohortsTab />}
@@ -49,10 +57,11 @@ export function DataStudio() {
  * Shared: a banner explaining which entities are user-owned
  * ------------------------------------------------------------------ */
 
-function OwnershipBar({ kind, owned }: { kind: 'faculty' | 'courses' | 'rooms'; owned: boolean }) {
+function OwnershipBar({ kind, owned }: { kind: 'staff' | 'courses' | 'rooms'; owned: boolean }) {
   const resetEntity = useApp(s => s.resetEntity)
   const toast = useToast()
-  const label = kind === 'faculty' ? 'staff' : kind === 'courses' ? 'courses' : 'rooms'
+  const [importing, setImporting] = useState(false)
+  const label = kind === 'staff' ? 'staff' : kind === 'courses' ? 'courses' : 'rooms'
 
   return (
     <div className="panel spread" style={{ marginBottom: 16, padding: '11px 16px' }}>
@@ -61,36 +70,42 @@ function OwnershipBar({ kind, owned }: { kind: 'faculty' | 'courses' | 'rooms'; 
           ? `These ${label} are yours — edits are saved with the project and the generator no longer touches them.`
           : `These ${label} are generated from your Setup figures. Editing any of them makes the whole list yours to keep.`}
       </span>
-      {owned && (
-        <button
-          className="btn btn-ghost"
-          onClick={() => { resetEntity(kind); toast(`Reset ${label} to the generated values`) }}
-        >
-          Reset to generated
+      <span className="row" style={{ gap: 8 }}>
+        <button className="btn btn-ghost" onClick={() => setImporting(true)}>
+          Import from CSV
         </button>
-      )}
+        {owned && (
+          <button
+            className="btn btn-ghost"
+            onClick={() => { resetEntity(kind); toast(`Reset ${label} to the generated values`) }}
+          >
+            Reset to generated
+          </button>
+        )}
+      </span>
+      {importing && <ImportPanel kind={kind} onClose={() => setImporting(false)} />}
     </div>
   )
 }
 
 /* ================================================================== *
- * Faculty
+ * Staff
  * ================================================================== */
 
-function FacultyTab() {
-  const { institution, metrics, config, editFaculty, addFaculty, removeFaculty } = useApp()
+function StaffTab() {
+  const { institution, metrics, config, editStaff, addStaff, removeStaff } = useApp()
   const toast = useToast()
   const [filter, setFilter] = useState('')
   /* One dialog drives both paths. A new person is a blank record that does not
      exist until Save, so cancelling leaves nothing behind — which is the whole
      point of collecting the details up front rather than dropping a placeholder
      into the roster and hoping somebody comes back to it. */
-  const [editing, setEditing] = useState<{ rec: FacultyRecord; mode: 'add' | 'edit' } | null>(null)
+  const [editing, setEditing] = useState<{ rec: StaffRecord; mode: 'add' | 'edit' } | null>(null)
 
-  const owned = Boolean(config.overrides?.faculty)
+  const owned = Boolean(config.overrides?.staff)
   const records = useMemo(
-    () => config.overrides?.faculty ?? facultyRecordsFrom(institution),
-    [config.overrides?.faculty, institution],
+    () => config.overrides?.staff ?? staffRecordsFrom(institution),
+    [config.overrides?.staff, institution],
   )
 
   const courseCode = useMemo(
@@ -109,7 +124,7 @@ function FacultyTab() {
 
   return (
     <>
-      <OwnershipBar kind="faculty" owned={owned} />
+      <OwnershipBar kind="staff" owned={owned} />
 
       <div className="filter-bar">
         <div className="search">
@@ -139,7 +154,7 @@ function FacultyTab() {
             side={
               <button
                 className="btn btn-soft"
-                onClick={() => setEditing({ rec: blankFaculty(dept.code), mode: 'add' })}
+                onClick={() => setEditing({ rec: blankStaff(dept.code), mode: 'add' })}
               >
                 + Add staff
               </button>
@@ -152,12 +167,12 @@ function FacultyTab() {
               {rows.map((rec, idx) => (
                 <div key={rec.id}>
                   {idx > 0 && <div className="divider" style={{ margin: 0 }} />}
-                  <FacultyRow
+                  <StaffRow
                     rec={rec}
                     color={color}
-                    load={metrics.facultyLoad.get(rec.id) ?? 0}
+                    load={metrics.staffLoad.get(rec.id) ?? 0}
                     onEdit={() => setEditing({ rec, mode: 'edit' })}
-                    onRemove={() => { removeFaculty(rec.id); toast(`Removed ${rec.name}`) }}
+                    onRemove={() => { removeStaff(rec.id); toast(`Removed ${rec.name}`) }}
                   />
                 </div>
               ))}
@@ -167,16 +182,16 @@ function FacultyTab() {
       })}
 
       {editing && (
-        <FacultyDialog
+        <StaffDialog
           initial={editing.rec}
           mode={editing.mode}
           onClose={() => setEditing(null)}
           onSave={saved => {
             if (editing.mode === 'add') {
-              addFaculty(saved)
+              addStaff(saved)
               toast(`Added ${saved.name} to ${saved.dept}`, 'ok')
             } else {
-              editFaculty(saved)
+              editStaff(saved)
               toast(`Updated ${saved.name}`, 'ok')
             }
             setEditing(null)
@@ -188,8 +203,8 @@ function FacultyTab() {
 }
 
 /** One roster line: enough to recognise a person, nothing that needs a form. */
-function FacultyRow(props: {
-  rec: FacultyRecord
+function StaffRow(props: {
+  rec: StaffRecord
   color: string
   load: number
   onEdit: () => void
@@ -379,14 +394,12 @@ function RoomEditor(props: {
           <TextInput value={rec.name} ariaLabel="Room name" onChange={v => set({ name: v })} />
         </Field>
         <Field label="Building">
-          <select
-            className="select"
+          <Combobox
             value={rec.buildingId}
-            aria-label="Building"
-            onChange={e => set({ buildingId: e.target.value })}
-          >
-            {config.buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-          </select>
+            ariaLabel="Building"
+            options={config.buildings.map(b => ({ value: b.id, label: b.name }))}
+            onChange={v => set({ buildingId: v })}
+          />
         </Field>
         <Field label="Floor" hint={HELP.floors}>
           <NumberInput
@@ -397,22 +410,25 @@ function RoomEditor(props: {
           />
         </Field>
         <Field label="Room type">
-          <select
-            className="select"
+          <Combobox
             value={rec.kind}
-            aria-label="Room type"
-            onChange={e => set({ kind: e.target.value as RoomKind })}
-          >
-            {ROOM_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-          </select>
+            ariaLabel="Room type"
+            options={SELECTABLE_ROOM_KINDS.map(k => ({ value: k, label: k }))}
+            onChange={v => set({ kind: v as RoomKind })}
+          />
         </Field>
         <Field label="Specialised facility" hint={HELP.specialisation}>
-          <select
-            className="select"
+          <Combobox
             value={matchedSpecialisation ?? ''}
-            aria-label="Specialised facility"
-            onChange={e => {
-              const spec = specialisationById(e.target.value)
+            ariaLabel="Specialised facility"
+            options={[
+              { value: '', label: 'General purpose' },
+              ...ROOM_SPECIALISATIONS.map(sp => ({
+                value: sp.id, label: sp.label, hint: sp.kind, keywords: sp.hint,
+              })),
+            ]}
+            onChange={v => {
+              const spec = specialisationById(v)
               if (!spec) return
               /* Applying a facility adds what it cannot work without and leaves
                  anything else already ticked alone — an accessible chemistry lab
@@ -423,12 +439,7 @@ function RoomEditor(props: {
                 turnoverMinutes: Math.max(rec.turnoverMinutes, spec.turnoverMinutes),
               })
             }}
-          >
-            <option value="">General purpose</option>
-            {ROOM_SPECIALISATIONS.map(sp => (
-              <option key={sp.id} value={sp.id}>{sp.label}</option>
-            ))}
-          </select>
+          />
         </Field>
         <Field label="Seats" hint={HELP.roomCapacity}>
           <NumberInput value={rec.capacity} min={1} max={2000} onChange={n => set({ capacity: n })} />
@@ -580,9 +591,13 @@ function CoursesTab() {
       <div className="filter-bar">
         <label className="row" style={{ gap: 8 }}>
           <span className="small muted">Department</span>
-          <select className="select" value={dept} aria-label="Department" onChange={e => setDept(e.target.value)}>
-            {config.departments.map(d => <option key={d.code} value={d.code}>{d.code} — {d.name}</option>)}
-          </select>
+          <Combobox
+            value={dept}
+            ariaLabel="Department"
+            width={230}
+            options={config.departments.map(d => ({ value: d.code, label: d.code, hint: d.name }))}
+            onChange={setDept}
+          />
         </label>
         <Segmented
           value={String(year)}
@@ -597,7 +612,7 @@ function CoursesTab() {
           className="btn btn-soft"
           style={{ marginLeft: 'auto' }}
           disabled={!program}
-          title={program ? undefined : `${dept} has no programme, so a course there would have no cohorts to teach`}
+          title={program ? undefined : `${dept} has no programme, so a course there would have no sections to teach`}
           onClick={() => {
             if (!program) return
             const target = year === 'all' ? 1 : year
@@ -613,7 +628,7 @@ function CoursesTab() {
           one to a department with no programme creates a class nobody attends. */}
       {!program && (
         <Callout tone="warn" title={`${dept} has no programme yet`}>
-          Courses are taught to the cohorts of a programme, so this department cannot hold any
+          Courses are taught to the sections of a programme, so this department cannot hold any
           until one exists. Add a programme for {dept} in Setup → Programmes.
         </Callout>
       )}
@@ -683,22 +698,34 @@ function CourseEditor(props: {
           <TextInput value={rec.name} ariaLabel="Course name" onChange={v => set({ name: v })} />
         </Field>
         <Field label="Department">
-          <select className="select" value={rec.dept} aria-label="Department" onChange={e => set({ dept: e.target.value })}>
-            {config.departments.map(d => <option key={d.code} value={d.code}>{d.code}</option>)}
-          </select>
+          <Combobox
+            value={rec.dept}
+            ariaLabel="Department"
+            options={config.departments.map(d => ({ value: d.code, label: d.code, hint: d.name }))}
+            onChange={v => set({ dept: v })}
+          />
         </Field>
         <Field label="Programme">
-          <select className="select" value={rec.programId} aria-label="Programme" onChange={e => set({ programId: e.target.value })}>
-            {config.programs.map(p => <option key={p.id} value={p.id}>{p.code}</option>)}
-          </select>
+          <Combobox
+            value={rec.programId}
+            ariaLabel="Programme"
+            emptyText={`No programmes in ${rec.dept}`}
+            options={config.programs
+              .filter(p => p.dept === rec.dept)
+              .map(p => ({ value: p.id, label: p.code, hint: p.name }))}
+            onChange={v => set({ programId: v })}
+          />
         </Field>
         <Field label="Year / semester">
           <NumberInput value={rec.year} min={1} max={8} onChange={n => set({ year: n })} />
         </Field>
         <Field label="Type">
-          <select className="select" value={rec.kind} aria-label="Course type" onChange={e => set({ kind: e.target.value as CourseKind })}>
-            {COURSE_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-          </select>
+          <Combobox
+            value={rec.kind}
+            ariaLabel="Course type"
+            options={COURSE_KINDS.map(k => ({ value: k, label: k }))}
+            onChange={v => set({ kind: v as CourseKind })}
+          />
         </Field>
         <Field label="Meetings per week" hint={HELP.coreWeekly}>
           <NumberInput value={rec.weekly} min={0} max={10} onChange={n => set({ weekly: n })} />
@@ -707,9 +734,12 @@ function CourseEditor(props: {
           <NumberInput value={rec.blockLength} min={1} max={6} onChange={n => set({ blockLength: n })} />
         </Field>
         <Field label="Needs room type">
-          <select className="select" value={rec.roomKind} aria-label="Room type" onChange={e => set({ roomKind: e.target.value as RoomKind })}>
-            {ROOM_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-          </select>
+          <Combobox
+            value={rec.roomKind}
+            ariaLabel="Room type"
+            options={SELECTABLE_ROOM_KINDS.map(k => ({ value: k, label: k }))}
+            onChange={v => set({ roomKind: v as RoomKind })}
+          />
         </Field>
       </div>
 
@@ -771,7 +801,7 @@ function CohortsTab() {
 
   return (
     <>
-      <Callout tone="info" title="What a cohort is">{HELP.cohort}</Callout>
+      <Callout tone="info" title="What a section is">{HELP.cohort}</Callout>
 
       <Section
         title="Sections by department and year"
@@ -813,7 +843,7 @@ function CohortsTab() {
       </Section>
 
       <Section
-        title="Cohorts"
+        title="Sections"
         hint={`${totalStudents.toLocaleString()} students in ${institution.cohorts.length} cohorts`}
       >
         <div className="grid grid-3">
