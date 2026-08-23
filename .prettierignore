@@ -8,4 +8,10 @@ package-lock.json
 *.png
 *.svg
 docs/CONTEXT.md
+
+# Generated. Prettier strips trailing whitespace from the reproduced licence
+# texts, the generator puts it back, and the two churn against each other on
+# every release — which would make `@semantic-release/git` commit a file that
+# differs from what `npm run audit:licenses` produces.
 CHANGELOG.md
+THIRD-PARTY-NOTICES.md
