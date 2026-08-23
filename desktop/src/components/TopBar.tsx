@@ -12,7 +12,8 @@ import type { RuleKey } from '../data/constraints/types'
 const NAV = [
   { to: '/', label: 'Overview' },
   { to: '/timetable', label: 'Timetable' },
-  { to: '/setup', label: 'Setup' },
+  { to: '/setup', label: 'Term setup' },
+  { to: '/institution', label: 'Institution' },
   { to: '/data', label: 'Data' },
   { to: '/calendar', label: 'Calendar' },
   { to: '/scenarios', label: 'Scenarios' },
@@ -188,7 +189,7 @@ export function TopBar() {
                 <button role="menuitem" onClick={() => exportFile('timetable')}>
                   Export timetable (CSV) <kbd>Ctrl E</kbd>
                 </button>
-                <button role="menuitem" onClick={() => exportFile('workload')}>Export faculty workload (CSV)</button>
+                <button role="menuitem" onClick={() => exportFile('workload')}>Export staff workload (CSV)</button>
                 <button role="menuitem" onClick={() => exportFile('constraints')}>Export constraint register (CSV)</button>
                 <button role="menuitem" onClick={() => exportFile('calendar')}>Export academic calendar (CSV)</button>
                 <button role="menuitem" onClick={() => exportFile('json')}>Export everything (JSON)</button>

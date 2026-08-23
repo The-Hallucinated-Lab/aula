@@ -10,13 +10,14 @@
  */
 
 import type { SetupConfig } from './config'
-import { slotsPerDay } from './config'
-import type { CourseRecord, FacultyRecord, RoomRecord } from './records'
+import { loadForRank, policyFor, slotPlan, slotsPerDay } from './config'
+import type { CourseRecord, StaffRecord, RoomRecord } from './records'
 import { buildAcademicCalendar, lostWeekdays } from './academicCalendar'
 import {
   labelToMinutes, minutesToLabel, mulberry32, shuffled,
   type Building, type Campus, type Cohort, type Course, type Department,
-  type EmploymentType, type EquipmentPool, type Faculty, type FacultyRank,
+  type Faculty, type School, type ShiftWindow,
+  type EmploymentType, type EquipmentPool, type Staff, type StaffRank,
   type Institution, type Room, type RoomFeature, type RoomKind, type TimeGrid,
 } from './model'
 
@@ -27,21 +28,21 @@ import {
 export function buildGrid(cfg: SetupConfig): TimeGrid {
   const cal = cfg.calendar
   const count = Math.max(0, slotsPerDay(cal))
-  const dayStart = labelToMinutes(cal.dayStart)
   /* A weekday every one of whose dates falls in a holiday is not a thin day,
      it is not a teaching day. Dropping it here rather than penalising it later
      is what makes `holidayBlackout` (C010) a real constraint instead of a
      tautology: nothing can be offered on a day the grid does not contain. */
   const lost = lostWeekdays(cal, cal.workingDays, count)
 
-  const starts = Array.from({ length: count }, (_, i) => dayStart + i * cal.slotMinutes)
+  const { starts, durations } = slotPlan(cal)
   const labels = starts.map(minutesToLabel)
+  const endOf = (i: number) => starts[i] + durations[i]
 
   const lunchFrom = labelToMinutes(cal.lunchStart)
   const lunchTo = lunchFrom + cal.lunchMinutes
   const lunchSlots = starts
     .map((s, i) => ({ s, i }))
-    .filter(({ s }) => s < lunchTo && s + cal.slotMinutes > lunchFrom)
+    .filter(({ s, i }) => s < lunchTo && endOf(i) > lunchFrom)
     .map(({ i }) => i)
 
   const eveningMins = labelToMinutes(cal.eveningStart)
@@ -54,7 +55,7 @@ export function buildGrid(cfg: SetupConfig): TimeGrid {
 
   const primeSlots = starts
     .map((s, i) => ({ s, i }))
-    .filter(({ s }) => s >= 10 * 60 && s + cal.slotMinutes <= 14 * 60)
+    .filter(({ s, i }) => s >= 10 * 60 && endOf(i) <= 14 * 60)
     .map(({ i }) => i)
 
   /* Never return an empty week: a calendar that cancels everything is a
@@ -63,11 +64,35 @@ export function buildGrid(cfg: SetupConfig): TimeGrid {
   const surviving = cal.workingDays.filter(d => !lost.includes(d))
   const days = (surviving.length > 0 ? surviving : cal.workingDays).slice().sort((a, b) => a - b)
 
+  /* Shift windows, resolved from clock times to slot indices.
+     A configuration with no shifts is not "shifts off" — it is one shift that
+     happens to span the whole day. Keeping exactly one code path means the
+     confinement check in the solver never needs a null case. */
+  const shifts: ShiftWindow[] = []
+  for (const s of cal.shifts) {
+    const from = labelToMinutes(s.start)
+    const to = labelToMinutes(s.end)
+    let fromSlot = -1
+    let toSlot = -1
+    for (let i = 0; i < count; i++) {
+      if (starts[i] >= from && endOf(i) <= to) {
+        if (fromSlot < 0) fromSlot = i
+        toSlot = i
+      }
+    }
+    if (fromSlot >= 0) shifts.push({ id: s.id, name: s.name, fromSlot, toSlot })
+  }
+  if (shifts.length === 0 && count > 0) {
+    shifts.push({ id: 'all-day', name: 'Full day', fromSlot: 0, toSlot: count - 1 })
+  }
+
   return {
     days,
     slots: count,
     labels,
     starts,
+    durations,
+    shifts,
     slotMinutes: cal.slotMinutes,
     passingMinutes: cal.passingMinutes,
     lunchSlots,
@@ -217,12 +242,19 @@ export function generateInstitution(cfg: SetupConfig): Institution {
       .map(r => r.kind),
   )
 
-  /* --- departments --- */
+  /* --- faculties, schools, departments --- */
+  const faculties: Faculty[] = cfg.faculties.map(f => ({
+    id: f.id, code: f.code, name: f.name,
+  }))
+  const schools: School[] = cfg.schools.map(s => ({
+    id: s.id, code: s.code, name: s.name, facultyId: s.faculty,
+  }))
   const departments: Department[] = cfg.departments.map((d, i) => ({
     id: `dept-${d.code}`,
     code: d.code,
     name: d.name,
     colorIndex: i,
+    schoolId: d.school,
     homeBuildingIds: [],
   }))
   const deptByCode = new Map(departments.map(d => [d.code, d]))
@@ -231,6 +263,21 @@ export function generateInstitution(cfg: SetupConfig): Institution {
   const courses: Course[] = []
   const cohorts: Cohort[] = []
   const sectionOverrides = cfg.overrides?.sections ?? {}
+
+  /* Which shift a section is taught in. An explicit per-section override wins;
+     failing that a per-year one; failing that an evening-mode programme goes to
+     the last shift and everything else to the first. With one configured shift
+     every branch lands in the same place, which is why single-shift
+     institutions never have to think about this. */
+  const shiftOverrides = cfg.overrides?.shifts ?? {}
+  const shiftIds = new Set(grid.shifts.map(s => s.id))
+  const firstShift = grid.shifts[0]?.id ?? 'all-day'
+  const lastShift = grid.shifts[grid.shifts.length - 1]?.id ?? firstShift
+  const shiftFor = (p: typeof cfg.programs[number], year: number, section: string): string => {
+    const explicit = shiftOverrides[`${p.id}:${year}:${section}`] ?? shiftOverrides[`${p.id}:${year}`]
+    if (explicit && shiftIds.has(explicit)) return explicit
+    return p.mode === 'evening' ? lastShift : firstShift
+  }
   const programs = cfg.programs.map(p => {
     const dept = deptByCode.get(p.dept) ?? departments[0]
     return {
@@ -256,20 +303,24 @@ export function generateInstitution(cfg: SetupConfig): Institution {
     if (!dept) continue
 
     for (let year = 1; year <= Math.max(1, p.years); year++) {
-      for (let i = 0; i < Math.max(0, p.coreCourses); i++) {
+      // Curriculum policy comes from the batch profile in force for this year,
+      // falling back to the programme's own figures.
+      const policy = policyFor(cfg, p, year)
+
+      for (let i = 0; i < Math.max(0, policy.coreCourses); i++) {
         courses.push({
           id: `c-${p.id}-${year}-core${i}`,
           code: `${p.dept}${year}${String(i + 1).padStart(2, '0')}`,
           name: subjectName(p.dept, year, i),
           deptId: dept.id, programId: p.id, year,
-          credits: 4, kind: 'Core', weekly: Math.max(1, p.coreWeekly), blockLength: 1,
+          credits: 4, kind: 'Core', weekly: Math.max(1, policy.coreWeekly), blockLength: 1,
           roomKind: lectureKind, requires: [], after: [],
           suspended: false, eveningOnly: p.mode === 'evening',
           heavyLoad: i < 2, daylightOnly: false,
         })
       }
 
-      for (let i = 0; i < Math.max(0, p.labCourses); i++) {
+      for (let i = 0; i < Math.max(0, policy.labCourses); i++) {
         const isComputing = p.dept === 'CSE'
         const kind = isComputing ? computerKind : labKind
         const wants: RoomFeature[] = []
@@ -282,13 +333,13 @@ export function generateInstitution(cfg: SetupConfig): Institution {
           name: labName(p.dept, year, i),
           deptId: dept.id, programId: p.id, year,
           credits: 2, kind: 'Lab', weekly: 1,
-          blockLength: Math.max(1, Math.min(p.labBlock, grid.slots)),
+          blockLength: Math.max(1, Math.min(policy.labBlock, grid.slots)),
           roomKind: kind, requires: wants, after: [],
           suspended: false, eveningOnly: false, heavyLoad: false, daylightOnly: false,
         })
       }
 
-      for (let i = 0; i < Math.max(0, p.electiveCourses); i++) {
+      for (let i = 0; i < Math.max(0, policy.electiveCourses); i++) {
         courses.push({
           id: `c-${p.id}-${year}-el${i}`,
           code: `${p.dept}${year}E${i + 1}`,
@@ -296,6 +347,13 @@ export function generateInstitution(cfg: SetupConfig): Institution {
           deptId: dept.id, programId: p.id, year,
           credits: 3, kind: 'Elective', weekly: 2, blockLength: 1,
           roomKind: seminarKind, requires: [], after: [],
+          /* An elective draws a fraction of a section, not all of it. Left at
+             the section size it demands a full-size room and competes with
+             core lectures for the few of those there are. Clamped to the
+             section size so a policy figure can never invent students. */
+          enrolment: policy.electiveEnrolment > 0
+            ? Math.min(policy.electiveEnrolment, Math.max(1, p.studentsPerSection))
+            : undefined,
           electiveGroup: `EG-${p.dept}-${year}`,
           suspended: false, eveningOnly: p.mode === 'evening',
           heavyLoad: false, daylightOnly: false,
@@ -303,8 +361,8 @@ export function generateInstitution(cfg: SetupConfig): Institution {
       }
 
       const teachingKinds: RoomKind[] = [lectureKind]
-      if (p.labCourses > 0) teachingKinds.push(p.dept === 'CSE' ? computerKind : labKind)
-      if (p.electiveCourses > 0) teachingKinds.push(seminarKind)
+      if (policy.labCourses > 0) teachingKinds.push(p.dept === 'CSE' ? computerKind : labKind)
+      if (policy.electiveCourses > 0) teachingKinds.push(seminarKind)
       const accessServable = teachingKinds.every(k => accessibleKinds.has(k))
 
       const sectionCount = Math.max(0, sectionOverrides[`${p.id}:${year}`] ?? p.sectionsPerYear)
@@ -313,6 +371,7 @@ export function generateInstitution(cfg: SetupConfig): Institution {
         cohorts.push({
           id: `g-${p.id}-${year}${section}`,
           name: `${p.dept} ${year}${section}`,
+          shiftId: shiftFor(p, year, section),
           deptId: dept.id,
           programId: p.id,
           year,
@@ -325,14 +384,14 @@ export function generateInstitution(cfg: SetupConfig): Institution {
     }
   }
 
-  /* --- courses and faculty may have been edited directly --- */
+  /* --- courses and staff may have been edited directly --- */
   const finalCourses: Course[] = cfg.overrides?.courses
     ? coursesFromRecords(cfg.overrides.courses, departments, lectureKind)
     : courses
 
-  const faculty = cfg.overrides?.faculty
-    ? facultyFromRecords(cfg.overrides.faculty, departments, finalCourses, grid)
-    : generateFaculty(cfg, rng, departments, finalCourses, cohorts)
+  const staff = cfg.overrides?.staff
+    ? staffFromRecords(cfg.overrides.staff, departments, finalCourses, grid)
+    : generateStaff(cfg, rng, departments, finalCourses, cohorts)
 
   /* --- equipment --- */
   const equipment: EquipmentPool[] = cfg.equipment.map(e => ({
@@ -340,30 +399,30 @@ export function generateInstitution(cfg: SetupConfig): Institution {
   }))
 
   return {
-    campuses, buildings, departments, programs, faculty, rooms,
+    campuses, buildings, faculties, schools, departments, programs, staff, rooms,
     courses: finalCourses, cohorts, equipment, grid,
     calendar: buildAcademicCalendar(cfg.calendar, grid),
   }
 }
 
 /* ------------------------------------------------------------------ *
- * Faculty
+ * Staff
  * ------------------------------------------------------------------ */
 
-function generateFaculty(
+function generateStaff(
   cfg: SetupConfig,
   rng: () => number,
   departments: Department[],
   courses: Course[],
   cohorts: Cohort[],
-): Faculty[] {
-  const total = Math.max(1, cfg.faculty.total)
-  const mix = cfg.faculty.mix
+): Staff[] {
+  const total = Math.max(1, cfg.staff.total)
+  const mix = cfg.staff.mix
   const mixTotal = Object.values(mix).reduce((a, b) => a + b, 0) || 1
 
   // rank slots, proportional to the configured mix
-  const ranks: FacultyRank[] = []
-  const spec: [FacultyRank, number][] = [
+  const ranks: StaffRank[] = []
+  const spec: [StaffRank, number][] = [
     ['Professor', mix.professor],
     ['Associate Professor', mix.associate],
     ['Assistant Professor', mix.assistant],
@@ -386,7 +445,7 @@ function generateFaculty(
      headcount implies. Dealing costs no randomness, so a seeded institution
      stays byte-for-byte reproducible. */
 
-  /* Share faculty across departments in proportion to the teaching they must
+  /* Share staff across departments in proportion to the teaching they must
      actually cover, not to how many distinct courses they own. A department
      running eight sections of a year carries eight times the hours of one
      running a single section off the same course list; weighting by course
@@ -404,10 +463,7 @@ function generateFaculty(
 
   // average weekly ceiling of this particular roster, so a department's share is
   // sized in hours it can actually teach rather than in bodies
-  const capOf = (rank: FacultyRank) =>
-    rank === 'Adjunct' ? cfg.faculty.adjunctMaxPerWeek
-      : rank === 'Teaching Assistant' ? cfg.faculty.taMaxPerWeek
-        : cfg.faculty.maxPerWeek
+  const capOf = (rank: StaffRank) => loadForRank(cfg.staff, rank).max
   const avgCap = ranks.reduce((a, r) => a + Math.max(1, capOf(r)), 0) / Math.max(1, ranks.length)
 
   const deptSlots = dealByDemand(departments, demandByDept, total, avgCap)
@@ -415,16 +471,16 @@ function generateFaculty(
   const slotCount = Math.max(1, slotsPerDay(cfg.calendar))
   const halfDay = Math.max(1, Math.floor(slotCount / 2))
 
-  const faculty: Faculty[] = []
+  const staff: Staff[] = []
   const used = new Set<string>()
   /* Rank is a designation; employment is a contract. They usually agree, and
      where they do not the record editor is the place to say so. */
-  const employmentFor = (rank: FacultyRank): EmploymentType =>
+  const employmentFor = (rank: StaffRank): EmploymentType =>
     rank === 'Visiting' ? 'Visiting'
       : rank === 'Adjunct' ? 'Part-time'
         : rank === 'Teaching Assistant' ? 'Contract'
           : 'Full-time'
-  const seniorityOf: Record<FacultyRank, number> = {
+  const seniorityOf: Record<StaffRank, number> = {
     Professor: 5, 'Associate Professor': 4, 'Assistant Professor': 3,
     Clinical: 3, Visiting: 2, Adjunct: 1, 'Teaching Assistant': 0,
   }
@@ -438,13 +494,10 @@ function generateFaculty(
       const candidate = `${rank === 'Teaching Assistant' ? '' : 'Dr. '}${FIRST[Math.floor(rng() * FIRST.length)]} ${LAST[Math.floor(rng() * LAST.length)]}`
       if (!used.has(candidate)) { name = candidate; break }
     }
-    if (!name) name = `Faculty ${i + 1}`
+    if (!name) name = `Staff ${i + 1}`
     used.add(name)
 
-    const maxPerWeek =
-      rank === 'Adjunct' ? cfg.faculty.adjunctMaxPerWeek
-        : rank === 'Teaching Assistant' ? cfg.faculty.taMaxPerWeek
-          : cfg.faculty.maxPerWeek
+    const maxPerWeek = loadForRank(cfg.staff, rank).max
 
     /* A preference has to be one of the four the record editor offers, or
        materialising the roster would quietly round it to "no preference" and
@@ -456,7 +509,7 @@ function generateFaculty(
         : roll < 0.40 ? [halfDay, slotCount]        // prefers afternoons
           : [0, 99]                                 // no preference
 
-    faculty.push({
+    staff.push({
       id: `f-${i}`,
       name,
       deptId,
@@ -467,7 +520,7 @@ function generateFaculty(
       maxHeadcount: 0,
       maxConsecutive: 0,
       employment: employmentFor(rank),
-      maxPerDay: Math.max(1, cfg.faculty.maxPerDay),
+      maxPerDay: Math.max(1, cfg.staff.maxPerDay),
       maxPerWeek: Math.max(1, maxPerWeek),
       blockedDays: [],
       blockedSlots: [],
@@ -488,8 +541,8 @@ function generateFaculty(
   /* --- qualification coverage ---
      Every course must have at least one non-sabbatical instructor, otherwise
      the solver would fail on a fiction rather than on real scarcity. */
-  const byDept = new Map<string, Faculty[]>()
-  for (const f of faculty) {
+  const byDept = new Map<string, Staff[]>()
+  for (const f of staff) {
     const list = byDept.get(f.deptId)
     if (list) list.push(f); else byDept.set(f.deptId, [f])
   }
@@ -508,8 +561,8 @@ function generateFaculty(
 
     // then broaden each person's portfolio up to the configured range
     for (const f of staff) {
-      const want = cfg.faculty.qualificationsMin
-        + Math.floor(rng() * Math.max(1, cfg.faculty.qualificationsMax - cfg.faculty.qualificationsMin + 1))
+      const want = cfg.staff.qualificationsMin
+        + Math.floor(rng() * Math.max(1, cfg.staff.qualificationsMax - cfg.staff.qualificationsMin + 1))
       for (const c of shuffled(rng, deptCourses)) {
         if (f.subjects.length >= want) break
         if (!f.subjects.includes(c.id)) f.subjects.push(c.id)
@@ -519,17 +572,17 @@ function generateFaculty(
 
   /* --- availability constraints, applied only where coverage survives --- */
   const coverage = new Map<string, number>()
-  for (const f of faculty) for (const cid of f.subjects) coverage.set(cid, (coverage.get(cid) ?? 0) + 1)
+  for (const f of staff) for (const cid of f.subjects) coverage.set(cid, (coverage.get(cid) ?? 0) + 1)
 
-  const canRestrict = (f: Faculty) => f.subjects.every(cid => (coverage.get(cid) ?? 0) > 1)
+  const canRestrict = (f: Staff) => f.subjects.every(cid => (coverage.get(cid) ?? 0) > 1)
 
-  const sabbaticalTarget = Math.floor((cfg.faculty.sabbaticalShare / 100) * faculty.length)
-  const researchTarget = Math.floor((cfg.faculty.researchDayShare / 100) * faculty.length)
-  const accessTarget = Math.floor((cfg.faculty.accessibilityShare / 100) * faculty.length)
+  const sabbaticalTarget = Math.floor((cfg.staff.sabbaticalShare / 100) * staff.length)
+  const researchTarget = Math.floor((cfg.staff.researchDayShare / 100) * staff.length)
+  const accessTarget = Math.floor((cfg.staff.accessibilityShare / 100) * staff.length)
   const days = [...cfg.calendar.workingDays]
 
   let sabbaticals = 0
-  for (const f of shuffled(rng, faculty)) {
+  for (const f of shuffled(rng, staff)) {
     if (sabbaticals >= sabbaticalTarget) break
     if (!canRestrict(f)) continue
     f.onSabbatical = true
@@ -538,7 +591,7 @@ function generateFaculty(
   }
 
   let research = 0
-  for (const f of shuffled(rng, faculty)) {
+  for (const f of shuffled(rng, staff)) {
     if (research >= researchTarget) break
     if (f.onSabbatical || days.length < 3) continue
     f.blockedDays = [days[Math.floor(rng() * days.length)]]
@@ -546,7 +599,7 @@ function generateFaculty(
   }
 
   let access = 0
-  for (const f of shuffled(rng, faculty)) {
+  for (const f of shuffled(rng, staff)) {
     if (access >= accessTarget) break
     if (f.onSabbatical) continue
     f.needsAccessibleRoom = true
@@ -554,12 +607,12 @@ function generateFaculty(
   }
 
   // visiting staff are only on campus part of the week
-  for (const f of faculty) {
+  for (const f of staff) {
     if (f.rank !== 'Visiting' || days.length < 3) continue
     f.campusDays = shuffled(rng, days).slice(0, Math.max(2, Math.floor(days.length / 2)))
   }
 
-  return faculty
+  return staff
 }
 
 /* ------------------------------------------------------------------ *
@@ -802,12 +855,12 @@ function coursesFromRecords(
   }))
 }
 
-function facultyFromRecords(
-  records: FacultyRecord[], departments: Department[], courses: Course[], grid: TimeGrid,
-): Faculty[] {
+function staffFromRecords(
+  records: StaffRecord[], departments: Department[], courses: Course[], grid: TimeGrid,
+): Staff[] {
   const byCode = new Map(departments.map(d => [d.code, d]))
   const courseById = new Map(courses.map(c => [c.id, c]))
-  const seniorityOf: Record<FacultyRank, number> = {
+  const seniorityOf: Record<StaffRank, number> = {
     'Professor': 5, 'Associate Professor': 4, 'Assistant Professor': 3,
     'Clinical': 3, 'Visiting': 2, 'Adjunct': 1, 'Teaching Assistant': 0,
   }
@@ -817,7 +870,7 @@ function facultyFromRecords(
      `preferDayPart`, `facultyTimeWindow` and `avoidEarlySlot` reading the same
      two numbers whichever path built the roster. */
   const half = Math.max(1, Math.floor(grid.slots / 2))
-  const windowFor = (shift: FacultyRecord['preferredShift']): [number, number] => {
+  const windowFor = (shift: StaffRecord['preferredShift']): [number, number] => {
     switch (shift) {
       case 'morning': return [0, half]
       case 'afternoon': return [half, grid.slots]
@@ -835,7 +888,7 @@ function facultyFromRecords(
    * space before the search starts, which is the difference between the solver
    * exploring dead branches and never seeing them.
    */
-  const eligible = (f: FacultyRecord, ids: string[]): string[] => ids.filter(id => {
+  const eligible = (f: StaffRecord, ids: string[]): string[] => ids.filter(id => {
     const course = courseById.get(id)
     if (!course) return false                                   // course was deleted
     if (f.programIds.length > 0 && !f.programIds.includes(course.programId)) return false
@@ -843,7 +896,11 @@ function facultyFromRecords(
     return true
   })
 
-  return records.map(f => {
+  /* People who have left the institution stay on the roster so past timetables
+     still resolve their name, but they are not schedulable. Filtering here
+     keeps them out of the solver entirely rather than relying on every rule to
+     remember to check. */
+  return records.filter(f => f.active !== false).map(f => {
     const [earliestSlot, latestSlot] = windowFor(f.preferredShift)
     const primary = eligible(f, f.courseIds)
     const secondary = eligible(f, f.secondaryCourseIds).filter(id => !primary.includes(id))

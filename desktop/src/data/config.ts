@@ -7,14 +7,52 @@
  */
 
 import { DAY_NAMES } from './model'
-import type { CalendarEvent, RoomKind } from './model'
+import type { CalendarEvent, RoomKind, StaffRank } from './model'
 import {
   isValidDate, lostWeekdays, weekdayAttrition, weeklyBlackoutCells,
 } from './academicCalendar'
 import type { CustomConstraint } from './constraints/custom'
 import type { EntityOverrides } from './records'
 
+/**
+ * A named teaching shift, as the administrator enters it.
+ *
+ * Replaces the generic `eveningStart` / `earlyMorningUntil` pair for the
+ * purpose of deciding *where a section may be taught*. Those two remain,
+ * because a handful of soft rules use them to talk about the time of day
+ * rather than about shift membership.
+ */
+export interface ShiftConfig {
+  id: string
+  /** local name, e.g. "Morning Shift" */
+  name: string
+  /** "08:00" — first teaching minute of the shift */
+  start: string
+  /** "13:10" — exclusive end of the shift */
+  end: string
+}
+
+/**
+ * The morning/evening split, ready to apply.
+ *
+ * The boundary is the one institutions running two shifts actually use: the
+ * morning shift ends and the evening shift begins at the same minute, so no
+ * teaching time falls between them.
+ */
+export const TWO_SHIFT_PRESET: ShiftConfig[] = [
+  { id: 'morning', name: 'Morning Shift', start: '08:00', end: '13:10' },
+  { id: 'evening', name: 'Evening Shift', start: '13:10', end: '18:00' },
+]
+
 export interface CalendarConfig {
+  /** teaching shifts; an empty list means one shift covering the whole day */
+  shifts: ShiftConfig[]
+  /**
+   * Shortest final period worth keeping, in minutes. 0 discards any remainder
+   * that will not fit a whole slot before `dayEnd`; a positive value allows a
+   * shorter last period rather than losing it. See `slotPlan`.
+   */
+  minFinalSlotMinutes: number
   /** day indices (0 = Monday) that carry teaching */
   workingDays: number[]
   /** "09:00" */
@@ -70,16 +108,87 @@ export interface ProgramConfig {
   labBlock: number
 }
 
+/** Top-level academic division, e.g. FOSTA — Faculty of Science & Technology. */
+export interface FacultyConfig {
+  id: string
+  code: string
+  name: string
+}
+
+/** A school inside a faculty, e.g. the School of Computer Science. */
+export interface SchoolConfig {
+  id: string
+  code: string
+  name: string
+  /** `FacultyConfig.id` this school belongs to */
+  faculty: string
+}
+
+/**
+ * Curriculum policy for one programme — how many courses of each kind a year
+ * carries and how often they meet.
+ *
+ * Every field is optional because a profile states only what *differs* from
+ * the programme's own defaults. A batch that added a second elective and
+ * changed nothing else is one field, not a whole curriculum restated.
+ */
+export interface CoursePolicy {
+  coreCourses: number
+  labCourses: number
+  electiveCourses: number
+  coreWeekly: number
+  labBlock: number
+  /**
+   * Expected headcount for an elective. Electives draw a fraction of a
+   * section, so treating them as full-size is what forces a 20-student
+   * programme elective into a 60-seat room. 0 falls back to the section size.
+   */
+  electiveEnrolment: number
+}
+
+/**
+ * An admissions batch's curriculum policy.
+ *
+ * Policy changes between intakes — one batch takes a single elective, the next
+ * takes two — but the programme itself does not change, and neither do the
+ * fifteen other things about it. A profile therefore sits *on top of* the
+ * programme's own figures rather than replacing them, which is the same shape
+ * as the per-year section override (D-28): the default remains, the override
+ * states the difference.
+ *
+ * Old profiles are archived rather than deleted once their cohorts graduate,
+ * so a timetable from three years ago still explains itself.
+ */
+export interface Profile {
+  id: string
+  name: string
+  /** the intake this governs, e.g. "2025-2029" */
+  batchLabel: string
+  archived: boolean
+  /** programme id -> the fields this batch changes */
+  policy: Record<string, Partial<CoursePolicy>>
+}
+
 export interface DeptConfig {
   code: string
   name: string
+  /** `SchoolConfig.id` this department sits under */
+  school: string
 }
 
 export interface BuildingConfig {
   id: string
   name: string
   campus: string
-  /** minutes to walk from this building to another on the same campus */
+  /**
+   * Minutes to walk from this building to another on the same campus.
+   *
+   * No longer collected: real walk times vary far more between any two
+   * specific blocks than a single per-building figure can express, and asking
+   * for it per block bought accuracy nobody used. It stays in the model at a
+   * uniform default because the back-to-back travel rules read it, and it can
+   * still arrive from an import.
+   */
   walkMinutes: number
   /** how many storeys the building has; rooms are spread across them */
   floors: number
@@ -119,7 +228,7 @@ export interface CampusConfig {
   travelMinutes: number
 }
 
-export interface FacultyConfig {
+export interface StaffConfig {
   /** total teaching staff; the generator distributes them across departments */
   total: number
   /** percentage splits, must sum to 100 */
@@ -132,9 +241,20 @@ export interface FacultyConfig {
     ta: number
   }
   maxPerDay: number
+  /**
+   * Institution-wide fallback ceiling, used for any designation not named in
+   * `loadByRank`. Kept because a project saved before per-rank loads existed
+   * has only this.
+   */
   maxPerWeek: number
   adjunctMaxPerWeek: number
   taMaxPerWeek: number
+  /**
+   * Weekly teaching load by designation, which is how workload is actually
+   * governed: a Professor and an Assistant Professor do not carry the same
+   * hours, and the difference is a rule, not a preference.
+   */
+  loadByRank: Partial<Record<StaffRank, RankLoad>>
   /** how many courses each person is qualified for */
   qualificationsMin: number
   qualificationsMax: number
@@ -144,6 +264,39 @@ export interface FacultyConfig {
   sabbaticalShare: number
   /** share (%) requiring step-free rooms */
   accessibilityShare: number
+}
+
+/**
+ * Weekly teaching hours for one designation.
+ *
+ * A minimum matters as much as a maximum: constraint 19 ("tenured minimum
+ * teaching loads must be met before assigning classes to adjuncts") is about
+ * the floor, and until now nothing recorded one.
+ */
+export interface RankLoad {
+  /** hours a person of this designation is expected to teach */
+  min: number
+  /** hours they may not exceed */
+  max: number
+}
+
+/**
+ * Defaults, pending confirmation.
+ *
+ * The two requirement sources disagree and neither is authoritative:
+ * the internal review recorded Assistant Professor as 12 min / 16 max, while
+ * the timetable coordinator gave Assistant ~14-16, Associate ~12, Professor ~8.
+ * The mechanism is what matters here; these figures are editable in Setup and
+ * should be confirmed with the department before anybody relies on them.
+ */
+export const DEFAULT_RANK_LOADS: Partial<Record<StaffRank, RankLoad>> = {
+  'Professor': { min: 6, max: 8 },
+  'Associate Professor': { min: 10, max: 12 },
+  'Assistant Professor': { min: 12, max: 16 },
+  'Clinical': { min: 8, max: 14 },
+  'Visiting': { min: 0, max: 12 },
+  'Adjunct': { min: 0, max: 9 },
+  'Teaching Assistant': { min: 0, max: 12 },
 }
 
 export interface EquipmentConfig {
@@ -161,11 +314,15 @@ export interface SetupConfig {
   }
   calendar: CalendarConfig
   campuses: CampusConfig[]
+  faculties: FacultyConfig[]
+  schools: SchoolConfig[]
   departments: DeptConfig[]
+  /** curriculum policy per admissions batch; the first live one is the default */
+  profiles: Profile[]
   programs: ProgramConfig[]
   buildings: BuildingConfig[]
   roomGroups: RoomGroupConfig[]
-  faculty: FacultyConfig
+  staff: StaffConfig
   equipment: EquipmentConfig[]
   /** seed for the deterministic generator */
   seed: number
@@ -183,12 +340,26 @@ export interface SetupConfig {
  * Every number here is editable in the Setup wizard.
  * ------------------------------------------------------------------ */
 
+/* The shape of a real faculty/school/department tree. These particular names
+   are a plausible default, not an authoritative structure — the institution's
+   own hierarchy is entered in Institution Setup. */
+const DEFAULT_FACULTIES: FacultyConfig[] = [
+  { id: 'fac-st', code: 'FOSTA', name: 'Faculty of Science & Technology' },
+]
+
+const DEFAULT_SCHOOLS: SchoolConfig[] = [
+  { id: 'sch-cs', code: 'SCS', name: 'School of Computer Science & Engineering', faculty: 'fac-st' },
+  { id: 'sch-ee', code: 'SEE', name: 'School of Electrical & Electronics Engineering', faculty: 'fac-st' },
+  { id: 'sch-am', code: 'SAM', name: 'School of Automobile, Mechanical & Mechatronics', faculty: 'fac-st' },
+  { id: 'sch-bs', code: 'SBS', name: 'School of Basic Sciences', faculty: 'fac-st' },
+]
+
 const DEFAULT_DEPTS: DeptConfig[] = [
-  { code: 'CSE', name: 'Computer Science & Engineering' },
-  { code: 'ECE', name: 'Electronics & Communication' },
-  { code: 'ME', name: 'Mechanical Engineering' },
-  { code: 'CE', name: 'Civil Engineering' },
-  { code: 'SH', name: 'Sciences & Humanities' },
+  { code: 'CSE', name: 'Computer Science & Engineering', school: 'sch-cs' },
+  { code: 'ECE', name: 'Electronics & Communication', school: 'sch-ee' },
+  { code: 'ME', name: 'Mechanical Engineering', school: 'sch-am' },
+  { code: 'CE', name: 'Civil Engineering', school: 'sch-am' },
+  { code: 'SH', name: 'Sciences & Humanities', school: 'sch-bs' },
 ]
 
 const DEFAULT_PROGRAMS: ProgramConfig[] = [
@@ -278,6 +449,12 @@ export const DEFAULT_CONFIG: SetupConfig = {
     term: 'Odd Semester',
   },
   calendar: {
+    /* One shift spanning the whole day, which `buildGrid` supplies implicitly.
+       A two-shift institution applies `TWO_SHIFT_PRESET` in Setup — it is left
+       off by default because confining every section to half the grid is a
+       real scheduling constraint, not a display preference. */
+    shifts: [],
+    minFinalSlotMinutes: 0,
     workingDays: [0, 1, 2, 3, 4],
     dayStart: '09:00',
     dayEnd: '17:00',
@@ -296,17 +473,24 @@ export const DEFAULT_CONFIG: SetupConfig = {
     events: [],
   },
   campuses: [{ id: 'main', name: 'Main Campus', travelMinutes: 0 }],
+  faculties: DEFAULT_FACULTIES,
+  schools: DEFAULT_SCHOOLS,
   departments: DEFAULT_DEPTS,
+  profiles: [{
+    id: 'profile-current', name: 'Current curriculum', batchLabel: '',
+    archived: false, policy: {},
+  }],
   programs: DEFAULT_PROGRAMS,
   buildings: DEFAULT_BUILDINGS,
   roomGroups: DEFAULT_ROOM_GROUPS,
-  faculty: {
+  staff: {
     total: 68,
     mix: { professor: 12, associate: 22, assistant: 40, adjunct: 12, visiting: 4, ta: 10 },
     maxPerDay: 5,
     maxPerWeek: 18,
     adjunctMaxPerWeek: 9,
     taMaxPerWeek: 12,
+    loadByRank: { ...DEFAULT_RANK_LOADS },
     qualificationsMin: 3,
     qualificationsMax: 5,
     researchDayShare: 20,
@@ -331,7 +515,7 @@ export interface ConfigSummary {
   roomSlotsPerWeek: number
   /** teaching sessions the schedule must place each week */
   demand: number
-  facultyTotal: number
+  staffTotal: number
   /** demand / supply; above 1.0 is structurally infeasible */
   pressure: number
   slotsPerDay: number
@@ -349,12 +533,108 @@ export interface ConfigSummary {
   warnings: string[]
 }
 
-export function slotsPerDay(cal: CalendarConfig): number {
+/**
+ * Where every teaching slot starts and how long it lasts.
+ *
+ * Slots are normally all `slotMinutes` long, but the last one of the day need
+ * not be. A 50-minute grid from 09:00 does not divide into a day ending at
+ * 18:00: the tenth slot would run 17:20-18:10, ten minutes past closing. The
+ * old behaviour was to floor the count and simply lose the final period. That
+ * is why a class scheduled to end at 18:10 could not be placed against an
+ * 18:00 campus close, and why the last period of the day went missing.
+ *
+ * `minFinalSlotMinutes` decides what happens to the remainder: 0 keeps the old
+ * behaviour, and any positive value admits a short final slot as long as it is
+ * at least that long. The day never runs past `dayEnd` either way.
+ */
+/**
+ * Resolve the curriculum policy in force for one programme-year.
+ *
+ * The programme's own figures are the base; the profile assigned to that year
+ * states only its differences. `copyProfile` is what makes a new batch cheap:
+ * clone the one it resembles and edit the fields that changed.
+ */
+/**
+ * The weekly load a designation carries.
+ *
+ * One resolver, so the generator's rosters and `expectedStaffCapacity`'s
+ * estimate can never disagree about what a Professor is allowed to teach.
+ * Falls back through the pre-existing per-contract fields so a project saved
+ * before `loadByRank` keeps the ceilings it was built with.
+ */
+export function loadForRank(staff: StaffConfig, rank: StaffRank): RankLoad {
+  const named = staff.loadByRank?.[rank]
+  if (named) return named
+  const legacy = rank === 'Adjunct' ? staff.adjunctMaxPerWeek
+    : rank === 'Teaching Assistant' ? staff.taMaxPerWeek
+      : staff.maxPerWeek
+  return { min: 0, max: legacy }
+}
+
+export function policyFor(
+  cfg: SetupConfig, program: ProgramConfig, year: number,
+): CoursePolicy {
+  const base: CoursePolicy = {
+    coreCourses: program.coreCourses,
+    labCourses: program.labCourses,
+    electiveCourses: program.electiveCourses,
+    coreWeekly: program.coreWeekly,
+    labBlock: program.labBlock,
+    electiveEnrolment: 0,
+  }
+  const id = cfg.overrides?.profiles?.[`${program.id}:${year}`]
+  const live = cfg.profiles.filter(p => !p.archived)
+  const profile = (id && cfg.profiles.find(p => p.id === id)) || live[0]
+  if (!profile) return base
+  return { ...base, ...profile.policy[program.id] }
+}
+
+/* A clock alone is not an identity: two copies made in the same millisecond
+   get the same id, and "Copy from" is exactly the button somebody clicks twice
+   in a row. The counter is what makes each one distinct. */
+let profileSeq = 0
+
+/** Clone a profile under a new identity — the "Copy from" the review asked for. */
+export function copyProfile(source: Profile, name: string, batchLabel: string): Profile {
+  return {
+    id: `profile-${Date.now().toString(36)}${profileSeq++}`,
+    name,
+    batchLabel,
+    archived: false,
+    policy: Object.fromEntries(
+      Object.entries(source.policy).map(([k, v]) => [k, { ...v }])),
+  }
+}
+
+export function slotPlan(cal: CalendarConfig): { starts: number[]; durations: number[] } {
   const [sh, sm] = cal.dayStart.split(':').map(Number)
   const [eh, em] = cal.dayEnd.split(':').map(Number)
-  const span = (eh * 60 + em) - (sh * 60 + sm)
-  if (!Number.isFinite(span) || span <= 0 || cal.slotMinutes <= 0) return 0
-  return Math.floor(span / cal.slotMinutes)
+  const start = sh * 60 + sm
+  const span = (eh * 60 + em) - start
+  if (!Number.isFinite(span) || span <= 0 || cal.slotMinutes <= 0) {
+    return { starts: [], durations: [] }
+  }
+
+  const whole = Math.floor(span / cal.slotMinutes)
+  const starts: number[] = []
+  const durations: number[] = []
+  for (let i = 0; i < whole; i++) {
+    starts.push(start + i * cal.slotMinutes)
+    durations.push(cal.slotMinutes)
+  }
+
+  const remainder = span - whole * cal.slotMinutes
+  const floor = Math.max(0, cal.minFinalSlotMinutes ?? 0)
+  if (floor > 0 && remainder >= floor) {
+    starts.push(start + whole * cal.slotMinutes)
+    durations.push(remainder)
+  }
+
+  return { starts, durations }
+}
+
+export function slotsPerDay(cal: CalendarConfig): number {
+  return slotPlan(cal).starts.length
 }
 
 export function summarise(cfg: SetupConfig): ConfigSummary {
@@ -466,11 +746,11 @@ export function summarise(cfg: SetupConfig): ConfigSummary {
   if (configuredDays.length === 0) errors.push('Select at least one working day.')
   if (cfg.programs.length === 0) errors.push('Add at least one programme.')
   if (rooms === 0) errors.push('Add at least one room group.')
-  const facultyCount = cfg.overrides?.faculty ? cfg.overrides.faculty.length : cfg.faculty.total
-  if (facultyCount <= 0) errors.push('Faculty headcount must be greater than zero.')
+  const staffCount = cfg.overrides?.staff ? cfg.overrides.staff.length : cfg.staff.total
+  if (staffCount <= 0) errors.push('Staff headcount must be greater than zero.')
 
-  const mixSum = Object.values(cfg.faculty.mix).reduce((a, b) => a + b, 0)
-  if (mixSum !== 100) warnings.push(`Faculty rank mix sums to ${mixSum}%, not 100% — it will be normalised.`)
+  const mixSum = Object.values(cfg.staff.mix).reduce((a, b) => a + b, 0)
+  if (mixSum !== 100) warnings.push(`Staff rank mix sums to ${mixSum}%, not 100% — it will be normalised.`)
 
   if (pressure > 1) {
     errors.push(
@@ -480,18 +760,18 @@ export function summarise(cfg: SetupConfig): ConfigSummary {
     warnings.push(`Room pressure is ${(pressure * 100).toFixed(0)}% — feasible but tight; expect soft-constraint compromises.`)
   }
 
-  /* Faculty supply. Counting every member of staff at the full-professor cap
+  /* Staff supply. Counting every member of staff at the full-professor cap
      overstates the roster by about a tenth: adjuncts and teaching assistants
      carry lower ceilings, and nobody on sabbatical teaches at all. */
-  const facultyCapacity = cfg.overrides?.faculty
-    ? cfg.overrides.faculty.filter(f => !f.onSabbatical).reduce((a, f) => a + f.maxPerWeek, 0)
-    : expectedFacultyCapacity(cfg.faculty)
-  if (facultyCapacity < demand) {
+  const staffCapacity = cfg.overrides?.staff
+    ? cfg.overrides.staff.filter(f => !f.onSabbatical).reduce((a, f) => a + f.maxPerWeek, 0)
+    : expectedStaffCapacity(cfg.staff)
+  if (staffCapacity < demand) {
     errors.push(
-      `Faculty capacity is short: ${demand} weekly sessions need teaching but the roster supplies only ${facultyCapacity} staff-hours per week.`,
+      `Staff capacity is short: ${demand} weekly sessions need teaching but the roster supplies only ${staffCapacity} staff-hours per week.`,
     )
-  } else if (facultyCapacity < demand * 1.15) {
-    warnings.push('Faculty capacity has under 15% headroom — substitutions will be hard to satisfy.')
+  } else if (staffCapacity < demand * 1.15) {
+    warnings.push('Staff capacity has under 15% headroom — substitutions will be hard to satisfy.')
   }
 
   // cohort day check: a section cannot need more slots than the week holds
@@ -647,7 +927,7 @@ export function summarise(cfg: SetupConfig): ConfigSummary {
 
   return {
     students, cohorts, courses, rooms, roomSlotsPerWeek, demand,
-    facultyTotal: facultyCount, pressure, slotsPerDay: perDay,
+    staffTotal: staffCount, pressure, slotsPerDay: perDay,
     teachingDays, lostDays, blackoutSlots, teachingDates,
     errors, warnings,
   }
@@ -674,16 +954,16 @@ export function lunchSlotsPerDay(cal: CalendarConfig): number {
  * Weekly teaching hours the configured roster can really supply, weighting each
  * rank by its own ceiling and removing the share on sabbatical.
  */
-export function expectedFacultyCapacity(f: FacultyConfig): number {
+export function expectedStaffCapacity(f: StaffConfig): number {
   const mixTotal = Object.values(f.mix).reduce((a, b) => a + b, 0) || 1
   const share = (n: number) => n / mixTotal
   const perHead =
-    share(f.mix.professor) * f.maxPerWeek
-    + share(f.mix.associate) * f.maxPerWeek
-    + share(f.mix.assistant) * f.maxPerWeek
-    + share(f.mix.visiting) * f.maxPerWeek
-    + share(f.mix.adjunct) * f.adjunctMaxPerWeek
-    + share(f.mix.ta) * f.taMaxPerWeek
+    share(f.mix.professor) * loadForRank(f, 'Professor').max
+    + share(f.mix.associate) * loadForRank(f, 'Associate Professor').max
+    + share(f.mix.assistant) * loadForRank(f, 'Assistant Professor').max
+    + share(f.mix.visiting) * loadForRank(f, 'Visiting').max
+    + share(f.mix.adjunct) * loadForRank(f, 'Adjunct').max
+    + share(f.mix.ta) * loadForRank(f, 'Teaching Assistant').max
   const teaching = Math.max(0, f.total) * (1 - Math.min(1, f.sabbaticalShare / 100))
   return Math.round(teaching * perHead)
 }

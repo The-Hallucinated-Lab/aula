@@ -5,7 +5,7 @@ import { ToastProvider } from './components/Toast'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { Overview } from './pages/Overview'
 import { Timetable } from './pages/Timetable'
-import { Setup } from './pages/Setup'
+import { InstitutionSetup, Setup } from './pages/Setup'
 import { DataStudio } from './pages/DataStudio'
 import { Calendar } from './pages/Calendar'
 import { Scenarios } from './pages/Scenarios'
@@ -25,6 +25,7 @@ function Pages() {
         <Route path="/" element={<Overview />} />
         <Route path="/timetable" element={<Timetable />} />
         <Route path="/setup" element={<Setup />} />
+        <Route path="/institution" element={<InstitutionSetup />} />
         <Route path="/data" element={<DataStudio />} />
         <Route path="/calendar" element={<Calendar />} />
         <Route path="/scenarios" element={<Scenarios />} />

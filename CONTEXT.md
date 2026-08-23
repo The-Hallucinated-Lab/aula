@@ -35,7 +35,7 @@
 - [GAP-01] 199 of the 500 constraints are advisory. They are tracked, weighted, switchable and exported for sign-off, but the engine cannot decide them from the current data model (exam-week seating, hazardous-waste windows, catering rotas, ceremony logistics). Extending the model — an assessment entity, a facilities calendar — is the path to enforcing more.
 - [GAP-02] The solver is a constraint-guided greedy placer with least-slack ordering and a bounded candidate search. It guarantees every enabled hard constraint and minimises weighted soft cost, but it does not prove optimality. A CP-SAT backend would.
 - [GAP-03] Cohort gap minimisation is weaker than the other soft objectives; typical output leaves ~9 free slots per cohort per week.
-- [GAP-04] Institution data is generated from the wizard's figures. There is no CSV/SIS import path yet; `generateInstitution` is the single seam where one would attach.
+- [GAP-04] ~~No CSV/SIS import path.~~ **Closed 2026-08-23.** `src/data/importers.ts` reads staff, room and course CSVs into `EntityOverrides`, which is the same seam an edit uses (D-22), so imported records inherit the whole validation and editing path. Every refused row is reported with its line and a reason. A live SIS connection is still out of scope.
 - [GAP-05] Exam scheduling is out of scope for this build — the app schedules the weekly teaching timetable.
 
 ## 5. IMMUTABLE EXECUTION TIMELINE & BUG LOG
@@ -119,3 +119,93 @@
 - **Verification:** `npm run typecheck` clean; `npm run lint` clean (the same 2 pre-existing fast-refresh warnings); `npm run verify` 60/60 checks pass, including 15 new ones covering UTC date handling, one-off vs full-weekday closures, weekly blackouts, observances against mandatory teaching, the legacy holiday migration, floor placement and clamping, and every new staff field reaching the solver; `npm run build` succeeds; driven in a browser end to end — added a three-day Dussehra closure and watched Mon/Tue/Wed drop to 15/16 teaching dates and the timetable headers follow, added a staff member through the dialog (validation refused an unnamed and unqualified record), and reduced a block from four floors to one and confirmed its rooms moved down rather than disappearing.
 - **Packaging note:** `npm run package` failed three times with `EPERM: rename 'release\win-unpacked.tmp' -> 'release\win-unpacked'`. The extracted directory could be deleted but not renamed, which is an on-access scanner holding it, not a permissions or Controlled-Folder-Access problem (that feature is off on this machine). It cleared on a later attempt with no change to the project. If it recurs: delete `release\win-unpacked.tmp` and run again.
 - **Known limitation:** holding two periods a week in every room lifts room pressure to 36% and, on some seeds, strands the last meeting of one course behind instructors who are all committed elsewhere at the remaining feasible times. The displacement pass moves rooms, not people, so it cannot rescue that — GAP-02. The app reports the shortfall by constraint number; the harness asserts the cost is at most one meeting rather than asserting perfection.
+
+
+- **Timestamp:** 2026-08-23T12:45:00Z
+- **Session ID:** aula-v1.3-muj-fit
+- **Author/Agent:** Claude Opus 5
+- **Target Subsystem:** domain model, generator, solver, rule registry, Setup, Data studio, new CSV importer
+- **Intent:** Act on two requirement reviews — an internal walkthrough of the app and a
+  requirements-discovery session with the university's timetable coordinator. Make the
+  institution model match a real one (faculty/school/department, admission-batch curriculum
+  profiles, morning and evening shifts), fix the reported failure that the generated
+  timetable ignores shifts entirely, cut the data-entry cost that made the incumbent system
+  unusable, and put a real-data import seam in place.
+- **Bugs Discovered:**
+  1. Shifts were reported as "set up and then ignored by the algorithm". They were never
+     ignored: the concept did not exist. `Program.mode` is a whole-programme attribute and
+     `eveningProgramStart` only fires for `cohort.mode === 'evening'`; every default
+     programme is `'day'`, so nothing confined a section to a band of the day. "Section 4C is
+     a morning-shift section" was inexpressible.
+  2. `facultyLunch` (C017) was materially wider than the constraint it implements. C017 reads
+     "…if teaching across the midday block"; the rule protected the midday slots for anybody
+     who taught at all that day, including staff whose day ended before lunch began. On a
+     two-shift grid, where the shift boundary sits at midday, this was the single largest
+     source of refusals — 30,383 blocked placements in the two-shift scenario.
+  3. `copyProfile` built ids from `Date.now()` alone, so two profiles copied within the same
+     millisecond collided — and "Copy from" is precisely the control somebody clicks twice.
+     Caught by the new harness check, not by review.
+  4. Choosing a combobox option with the mouse reopened the list it had just closed, leaving
+     an empty box over the value picked. `Field` wraps almost every control in a `<label>`,
+     and a label forwards clicks to its control as the click's default action.
+  5. The CSV importer absorbed an unparseable number silently: a capacity of "notanumber"
+     became 60 with no diagnostic, breaking its own stated contract that no row is ever
+     dropped or altered in silence.
+  6. A custom rule saved before the `Faculty` → `Staff` rename carries `scope.kind:
+     'faculty'`, which matches nothing in `inScope`. It would have loaded, looked intact in
+     the editor, and silently never fired.
+- **Fixes Applied:**
+  1. Added `ShiftWindow` to the time grid and `shiftId` to the cohort, with per-section
+     overrides keyed `${programId}:${year}:${section}`. Confinement is structural, in
+     `firstHardFailure`/`allHardFailures` rather than in the search loop, so the solver, the
+     exhaustive sweep, the displacement pass and interactive drag-and-drop are all covered by
+     one gate — see D-46.
+  2. `facultyLunch` now fires only for staff with sessions on both sides of the break, which
+     is what C017 says. C017 no longer appears among the top blockers.
+  3. `copyProfile` ids carry a monotonic counter alongside the clock.
+  4. Combobox options cancel the click's default action, which stops the label forwarding it.
+  5. `readInt` distinguishes "blank, use the default" from "unparseable, report it".
+  6. `normaliseCustom` migrates the legacy scope kind and falls back to `all` for anything
+     unrecognisable, rather than passing through a value that will never match.
+- **Context Modifications:**
+  - New: `src/data/importers.ts`, `src/components/ImportPanel.tsx`
+  - Renamed: `Faculty` → `Staff` throughout the domain model (`FacultyRecord` →
+    `StaffRecord`, `Session.facultyId` → `staffId`, `components/FacultyDialog.tsx` →
+    `StaffDialog.tsx`). The 124 rule keys and all 500 catalogue rows are untouched — see D-45.
+  - Extended: `model.ts` (`Faculty` and `School` as institutional units, `ShiftWindow`,
+    `TimeGrid.durations`, `sessionMinutes`, `SELECTABLE_ROOM_KINDS`), `config.ts`
+    (`FacultyConfig`, `SchoolConfig`, `ShiftConfig`, `Profile`, `CoursePolicy`, `RankLoad`,
+    `slotPlan`, `policyFor`, `copyProfile`, `loadForRank`), `records.ts` (`StaffRecord.active`,
+    shift and profile overrides), `normalise.ts` (hierarchy rooting, shifts, profiles, rank
+    loads, legacy scope migration), `generator.ts` (hierarchy, shift assignment, profile-driven
+    curriculum, elective enrolment, inactive staff excluded), `solver.ts` (`structuralFailure`),
+    `context.ts` (`shiftById`, duration-aware slot arithmetic), `store.ts` (draft layer,
+    `importEntity`)
+  - Rewritten: `pages/Setup.tsx` split into a locked one-time Institution setup
+    (identity, hierarchy, teaching day, rooms) and a per-term setup (curriculum profiles,
+    programmes, staff, term, review)
+  - `components/ui.tsx` gained `Combobox`; all 27 native `<select>` elements across seven
+    files were replaced with it
+- **Verification:** `npm run typecheck` clean across both TS projects; `npm run lint` clean
+  (the same 2 pre-existing fast-refresh warnings); `npm run verify` 159/159 checks pass, up
+  from 78, with 81 new ones covering shift confinement (re-derived from the produced
+  schedule, plus the drag-and-drop path), the trimmed final period, hierarchy and profile
+  migration, Copy-from isolation, per-designation load bands, the midday break both ways,
+  departed staff, and CSV import including quoting, column aliasing and per-row refusal;
+  `npm run build` succeeds. Driven end to end in a browser: the combobox filters 5
+  departments to 1 on "mech" and commits by keyboard and mouse; institution setup arrives
+  locked; a draft edit shows in the preview while `localStorage` still holds the old value,
+  and only the confirmation dialog commits it; Copy-from clones a profile; and a roster CSV
+  containing two staff who share a name, one bad department and one blank row reports
+  "2 rows ready, 2 refused" with a line number and a reason for each.
+- **Packaging note:** `npm run package` failed twice with the same
+  `EPERM: rename 'release\win-unpacked.tmp' -> 'release\win-unpacked'` recorded against
+  the v1.2 session, including after the documented remedy of deleting the stale directory.
+  The failure is in `prepareApplicationStageDirectory` while extracting the **downloaded
+  Electron runtime**, which happens before any application code is packaged, so it is
+  environmental and independent of this session's changes. `npm run build` succeeds and the
+  app was driven end to end in a browser instead. Not verified: the packaged Electron shell.
+- **Known limitation:** Per-designation load bands are real teaching capacity, and the
+  defaults reduce it substantially against the previous flat 18 h ceiling (a Professor now
+  carries 8). The two source documents disagree on the numbers and neither is authoritative,
+  so they ship as editable defaults pending departmental confirmation — see §6 below.

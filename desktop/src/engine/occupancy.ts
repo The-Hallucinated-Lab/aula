@@ -12,8 +12,8 @@ import type { Institution, Session } from '../data/model'
 export class Occupancy {
   readonly sessions: Session[] = []
 
-  /** `${facultyId}:${day}:${slot}` */
-  private facultySlot = new Set<string>()
+  /** `${staffId}:${day}:${slot}` */
+  private staffSlot = new Set<string>()
   /** `${roomId}:${day}:${slot}` */
   private roomSlot = new Set<string>()
   /** `${cohortId}:${day}:${slot}` */
@@ -21,17 +21,17 @@ export class Occupancy {
   /** `${equipmentId}:${day}:${slot}` -> units in use */
   private equipSlot = new Map<string, number>()
 
-  /** `${facultyId}:${day}` -> sessions that day, slot-ascending */
-  private facultyDay = new Map<string, Session[]>()
+  /** `${staffId}:${day}` -> sessions that day, slot-ascending */
+  private staffDay = new Map<string, Session[]>()
   private cohortDay = new Map<string, Session[]>()
   private roomDay = new Map<string, Session[]>()
 
-  private facultyWeek = new Map<string, number>()
-  private facultyDayCount = new Map<string, number>()
-  private facultyRooms = new Map<string, Set<string>>()
-  private facultyBuildings = new Map<string, Set<string>>()
-  private facultyDays = new Map<string, Set<number>>()
-  private facultyLabHours = new Map<string, number>()
+  private staffWeek = new Map<string, number>()
+  private staffDayCount = new Map<string, number>()
+  private staffRooms = new Map<string, Set<string>>()
+  private staffBuildings = new Map<string, Set<string>>()
+  private staffDays = new Map<string, Set<number>>()
+  private staffLabHours = new Map<string, number>()
 
   /** `${cohortId}:${courseId}` -> days that course already meets */
   private cohortCourseDays = new Map<string, Set<number>>()
@@ -59,7 +59,7 @@ export class Occupancy {
 
     for (let k = 0; k < s.length; k++) {
       const slot = s.slot + k
-      this.facultySlot.add(`${s.facultyId}:${s.day}:${slot}`)
+      this.staffSlot.add(`${s.staffId}:${s.day}:${slot}`)
       this.roomSlot.add(`${s.roomId}:${s.day}:${slot}`)
       this.cohortSlot.add(`${s.cohortId}:${s.day}:${slot}`)
       if (course?.equipmentId) {
@@ -68,18 +68,18 @@ export class Occupancy {
       }
     }
 
-    push(this.facultyDay, `${s.facultyId}:${s.day}`, s)
+    push(this.staffDay, `${s.staffId}:${s.day}`, s)
     push(this.cohortDay, `${s.cohortId}:${s.day}`, s)
     push(this.roomDay, `${s.roomId}:${s.day}`, s)
 
-    bump(this.facultyWeek, s.facultyId, s.length)
-    bump(this.facultyDayCount, `${s.facultyId}:${s.day}`, s.length)
+    bump(this.staffWeek, s.staffId, s.length)
+    bump(this.staffDayCount, `${s.staffId}:${s.day}`, s.length)
     bump(this.roomUse, s.roomId, s.length)
-    if (course?.kind === 'Lab') bump(this.facultyLabHours, s.facultyId, s.length)
+    if (course?.kind === 'Lab') bump(this.staffLabHours, s.staffId, s.length)
 
-    addTo(this.facultyRooms, s.facultyId, s.roomId)
-    if (room) addTo(this.facultyBuildings, `${s.facultyId}:${s.day}`, room.buildingId)
-    addToNum(this.facultyDays, s.facultyId, s.day)
+    addTo(this.staffRooms, s.staffId, s.roomId)
+    if (room) addTo(this.staffBuildings, `${s.staffId}:${s.day}`, room.buildingId)
+    addToNum(this.staffDays, s.staffId, s.day)
     addToNum(this.cohortCourseDays, `${s.cohortId}:${s.courseId}`, s.day)
     addToNum(this.courseDays, s.courseId, s.day)
 
@@ -89,8 +89,8 @@ export class Occupancy {
 
   /* ---------------- queries ---------------- */
 
-  facultyBusy(id: string, day: number, slot: number, length = 1) {
-    for (let k = 0; k < length; k++) if (this.facultySlot.has(`${id}:${day}:${slot + k}`)) return true
+  staffBusy(id: string, day: number, slot: number, length = 1) {
+    for (let k = 0; k < length; k++) if (this.staffSlot.has(`${id}:${day}:${slot + k}`)) return true
     return false
   }
 
@@ -112,8 +112,8 @@ export class Occupancy {
     return peak
   }
 
-  facultyOnDay(id: string, day: number): Session[] {
-    return this.facultyDay.get(`${id}:${day}`) ?? []
+  staffOnDay(id: string, day: number): Session[] {
+    return this.staffDay.get(`${id}:${day}`) ?? []
   }
 
   cohortOnDay(id: string, day: number): Session[] {
@@ -124,12 +124,12 @@ export class Occupancy {
     return this.roomDay.get(`${id}:${day}`) ?? []
   }
 
-  facultyWeekHours(id: string) { return this.facultyWeek.get(id) ?? 0 }
-  facultyDayHours(id: string, day: number) { return this.facultyDayCount.get(`${id}:${day}`) ?? 0 }
-  facultyLabWeekHours(id: string) { return this.facultyLabHours.get(id) ?? 0 }
-  facultyRoomCount(id: string) { return this.facultyRooms.get(id)?.size ?? 0 }
-  facultyBuildingsOn(id: string, day: number) { return this.facultyBuildings.get(`${id}:${day}`) ?? EMPTY_STR }
-  facultyTeachingDays(id: string) { return this.facultyDays.get(id) ?? EMPTY_NUM }
+  staffWeekHours(id: string) { return this.staffWeek.get(id) ?? 0 }
+  staffDayHours(id: string, day: number) { return this.staffDayCount.get(`${id}:${day}`) ?? 0 }
+  staffLabWeekHours(id: string) { return this.staffLabHours.get(id) ?? 0 }
+  staffRoomCount(id: string) { return this.staffRooms.get(id)?.size ?? 0 }
+  staffBuildingsOn(id: string, day: number) { return this.staffBuildings.get(`${id}:${day}`) ?? EMPTY_STR }
+  staffTeachingDays(id: string) { return this.staffDays.get(id) ?? EMPTY_NUM }
   cohortCourseMeetsOn(cohortId: string, courseId: string) {
     return this.cohortCourseDays.get(`${cohortId}:${courseId}`) ?? EMPTY_NUM
   }

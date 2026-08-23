@@ -16,8 +16,51 @@ export const DAY_NAMES = [
 ] as const
 export const DAY_SHORT = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'] as const
 
+/**
+ * A teaching shift — a contiguous band of the day a section belongs to.
+ *
+ * Institutions that run morning and evening shifts do not merely prefer them:
+ * a morning-shift section has no students on campus in the afternoon. This is
+ * a hard boundary, and it is the cohort's, not the programme's — two sections
+ * of the same programme routinely sit in different shifts.
+ *
+ * Slot bounds are inclusive at both ends, matching `CalendarEvent`.
+ */
+export interface ShiftWindow {
+  id: string
+  name: string
+  /** first slot index of the shift */
+  fromSlot: number
+  /** last slot index of the shift, inclusive */
+  toSlot: number
+}
+
+/**
+ * How many minutes a session starting at `slot` and running `length` slots
+ * actually occupies.
+ *
+ * Lives here rather than in the engine because exporters and UI need it too,
+ * and `src/data` may not import `src/engine`. Sums real slot durations: the
+ * final period of the day can be shorter than the nominal slot length.
+ */
+export function sessionMinutes(
+  grid: Pick<TimeGrid, 'durations' | 'slotMinutes'>, slot: number, length: number,
+): number {
+  let total = 0
+  for (let i = slot; i < slot + length; i++) {
+    total += grid.durations[i] ?? grid.slotMinutes
+  }
+  return total
+}
+
+/** Does a session of `length` slots starting at `slot` fit inside the shift? */
+export const fitsShift = (w: ShiftWindow, slot: number, length: number) =>
+  slot >= w.fromSlot && slot + length - 1 <= w.toSlot
+
 /** Resolved time grid — how many days/slots exist and what each slot means. */
 export interface TimeGrid {
+  /** teaching shifts, in order; always at least one covering the whole day */
+  shifts: ShiftWindow[]
   /** indices into DAY_NAMES, in teaching order, e.g. [0,1,2,3,4] */
   days: number[]
   /** number of teaching slots per day */
@@ -26,6 +69,13 @@ export interface TimeGrid {
   labels: string[]
   /** minutes from midnight at which each slot starts */
   starts: number[]
+  /**
+   * Length of each slot in minutes. Normally every entry is `slotMinutes`, but
+   * the final period of the day can be shorter so the grid reaches `dayEnd`
+   * without overrunning it — never assume `length * slotMinutes`.
+   */
+  durations: number[]
+  /** the nominal slot length; the last slot of the day may be shorter */
   slotMinutes: number
   passingMinutes: number
   /** slot indices that fall inside the protected lunch window */
@@ -150,9 +200,28 @@ export type RoomKind =
   | 'Lecture' | 'Lab' | 'Seminar' | 'Studio' | 'Computer Lab'
   | 'Auditorium' | 'Workshop' | 'Gymnasium' | 'Special'
 
+/**
+ * Every room kind the model accepts.
+ *
+ * Wider than what the interface offers, deliberately: imported data and older
+ * projects may carry any of these and must still normalise rather than being
+ * silently rewritten to "Lecture".
+ */
 export const ROOM_KINDS: RoomKind[] = [
   'Lecture', 'Lab', 'Seminar', 'Studio', 'Computer Lab',
   'Auditorium', 'Workshop', 'Gymnasium', 'Special',
+]
+
+/**
+ * What a room picker offers.
+ *
+ * Auditoria and gymnasia are not scheduled as teaching rooms at the
+ * institutions this is built for — they were generic defaults cluttering every
+ * dropdown. They remain valid values (see `ROOM_KINDS`); they are simply not
+ * proposed.
+ */
+export const SELECTABLE_ROOM_KINDS: RoomKind[] = [
+  'Lecture', 'Lab', 'Seminar', 'Studio', 'Computer Lab', 'Workshop', 'Special',
 ]
 
 export interface Campus {
@@ -208,11 +277,11 @@ export interface EquipmentPool {
  * People and curriculum
  * ------------------------------------------------------------------ */
 
-export type FacultyRank =
+export type StaffRank =
   | 'Professor' | 'Associate Professor' | 'Assistant Professor'
   | 'Adjunct' | 'Visiting' | 'Teaching Assistant' | 'Clinical'
 
-export const FACULTY_RANKS: FacultyRank[] = [
+export const STAFF_RANKS: StaffRank[] = [
   'Professor', 'Associate Professor', 'Assistant Professor',
   'Adjunct', 'Visiting', 'Teaching Assistant', 'Clinical',
 ]
@@ -223,11 +292,11 @@ export const EMPLOYMENT_TYPES: EmploymentType[] = [
   'Full-time', 'Part-time', 'Visiting', 'Contract', 'Guest',
 ]
 
-export interface Faculty {
+export interface Staff {
   id: string
   name: string
   deptId: string
-  rank: FacultyRank
+  rank: StaffRank
   /** course ids this person is qualified to teach */
   subjects: string[]
   maxPerDay: number
@@ -328,11 +397,37 @@ export interface Program {
   mode: 'day' | 'evening' | 'weekend'
 }
 
+/**
+ * The institutional hierarchy.
+ *
+ *   Faculty (FOSTA) -> School (School of Computer Science)
+ *                   -> Department (CSE, AI&ML) -> Program (B.Tech) -> Section
+ *
+ * "Faculty" here is the top-level academic division, which is what the word
+ * means at the institutions this is built for. The person who teaches is a
+ * `Staff`. The two were the same word until this hierarchy was added, and
+ * every picker that scopes itself by ancestry depends on telling them apart.
+ */
+export interface Faculty {
+  id: string
+  code: string
+  name: string
+}
+
+export interface School {
+  id: string
+  code: string
+  name: string
+  facultyId: string
+}
+
 export interface Department {
   id: string
   code: string
   name: string
   colorIndex: number
+  /** school this department sits under */
+  schoolId: string
   /** buildings this department has booking priority over */
   homeBuildingIds: string[]
 }
@@ -340,6 +435,8 @@ export interface Department {
 export interface Cohort {
   id: string
   name: string
+  /** `ShiftWindow.id` this section is taught in */
+  shiftId: string
   deptId: string
   programId: string
   year: number
@@ -354,9 +451,11 @@ export interface Cohort {
 export interface Institution {
   campuses: Campus[]
   buildings: Building[]
+  faculties: Faculty[]
+  schools: School[]
   departments: Department[]
   programs: Program[]
-  faculty: Faculty[]
+  staff: Staff[]
   rooms: Room[]
   courses: Course[]
   cohorts: Cohort[]
@@ -372,14 +471,14 @@ export interface Institution {
 export interface Session {
   id: string
   courseId: string
-  facultyId: string
+  staffId: string
   cohortId: string
   roomId: string
   day: number
   slot: number
   /** consecutive slots occupied, at least 1 */
   length: number
-  /** original faculty id when a substitution has been applied */
+  /** original staff id when a substitution has been applied */
   substitutedFor?: string
 }
 
@@ -460,7 +559,7 @@ export interface ScenarioProfile {
  * cohort. Both the solver's candidate filter and the substitution finder read
  * this, so the two can never disagree about who is allowed to teach what.
  */
-export function canTeach(f: Faculty, course: Course, headcount: number): boolean {
+export function canTeach(f: Staff, course: Course, headcount: number): boolean {
   if (f.onSabbatical) return false
   if (!f.subjects.includes(course.id)) return false
   return f.maxHeadcount <= 0 || headcount <= f.maxHeadcount

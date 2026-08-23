@@ -43,7 +43,7 @@ export function Assistant() {
     id: msgId++,
     from: 'aula',
     tag: 'Ready',
-    text: 'Ask about this week. I answer from the solved schedule — the cohorts, rooms, staff and the constraints that shaped it.',
+    text: 'Ask about this week. I answer from the solved schedule — the sections, rooms, staff and the constraints that shaped it.',
   }])
 
   /* --- is a local model available? --- */
@@ -83,7 +83,7 @@ export function Assistant() {
     institution: store.institution,
     report: store.report,
     disabled: CATALOGUE.filter(c => store.states[c.id]?.enabled === false),
-    facultyLoad: store.metrics.facultyLoad,
+    staffLoad: store.metrics.staffLoad,
   }), [store.institution, store.report, store.states, store.metrics])
 
   const scrollDown = useCallback(() => {
@@ -208,7 +208,7 @@ export function Assistant() {
             <input
               value={draft}
               disabled={busy}
-              placeholder={busy ? 'Thinking…' : 'Ask about a cohort, a constraint number, a room or a person…'}
+              placeholder={busy ? 'Thinking…' : 'Ask about a section, a constraint number, a room or a person…'}
               aria-label="Ask the assistant"
               onChange={e => setDraft(e.target.value)}
               onKeyDown={e => { if (e.key === 'Enter') void send(draft) }}
@@ -280,8 +280,8 @@ function explain(q: string, s: Store): { text: string; tag?: string } {
   }
 
   if (/load|busiest|heaviest|overwork|workload/.test(lower)) {
-    const ranked = s.institution.faculty
-      .map(f => ({ f, h: s.metrics.facultyLoad.get(f.id) ?? 0 }))
+    const ranked = s.institution.staff
+      .map(f => ({ f, h: s.metrics.staffLoad.get(f.id) ?? 0 }))
       .sort((a, b) => b.h - a.h)
       .slice(0, 4)
     return {
@@ -321,7 +321,7 @@ function explain(q: string, s: Store): { text: string; tag?: string } {
       const lines = onDay.map(x => {
         const c = s.institution.courses.find(y => y.id === x.courseId)
         const r = s.institution.rooms.find(y => y.id === x.roomId)
-        const f = s.institution.faculty.find(y => y.id === x.facultyId)
+        const f = s.institution.staff.find(y => y.id === x.staffId)
         return `${s.institution.grid.labels[x.slot]} — ${c?.code} ${c?.name} · ${r?.name ?? 'no room'} · ${f?.name}`
       })
       return { tag: cohort.name, text: `${DAY_NAMES[dayMatch]} for ${cohort.name}:\n\n${lines.join('\n')}` }

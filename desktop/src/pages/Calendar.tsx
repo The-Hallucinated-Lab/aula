@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useApp } from '../store'
 import { useToast } from '../components/Toast'
-import { Callout, Empty, Field, Hero, Meter, NumberInput, Pill, Section, Switch, TextInput } from '../components/ui'
+import { Callout, Combobox, Empty, Field, Hero, Meter, NumberInput, Pill, Section, Switch, TextInput } from '../components/ui'
 import { Dialog, DialogSection } from '../components/Dialog'
 import { StaleNotice } from '../components/StaleNotice'
 import { saveText } from '../platform'
@@ -480,14 +480,12 @@ function EventDialog(props: {
             />
           </Field>
           <Field label="Type" hint={HELP.eventKind}>
-            <select
-              className="select"
+            <Combobox
               value={ev.kind}
-              aria-label="Type"
-              onChange={e => set({ kind: e.target.value as CalendarEventKind })}
-            >
-              {CALENDAR_KINDS.map(k => <option key={k.id} value={k.id}>{k.label}</option>)}
-            </select>
+              ariaLabel="Type"
+              options={CALENDAR_KINDS.map(k => ({ value: k.id, label: k.label, keywords: k.blurb }))}
+              onChange={v => set({ kind: v as CalendarEventKind })}
+            />
           </Field>
           <Field label="Note" hint="Optional. Appears on the exported calendar.">
             <TextInput value={ev.note} ariaLabel="Note" onChange={v => set({ note: v })} />

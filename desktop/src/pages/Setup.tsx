@@ -2,46 +2,116 @@ import { useMemo, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useApp } from '../store'
 import { useToast } from '../components/Toast'
+import { Dialog } from '../components/Dialog'
 import {
-  Callout, Field, Hero, Meter, NumberInput, Pill, Section, Segmented, TextInput,
+  Callout, Combobox, Field, Hero, Meter, NumberInput, Pill, Section, Segmented, TextInput,
 } from '../components/ui'
 import {
-  slotsPerDay,
+  TWO_SHIFT_PRESET, copyProfile, slotPlan,
   type BuildingConfig, type ProgramConfig, type RoomGroupConfig, type SetupConfig,
+  type ShiftConfig,
 } from '../data/config'
 import {
-  DAY_NAMES, DAY_SHORT, ROOM_KINDS, minutesToLabel, labelToMinutes, type RoomKind,
+  DAY_NAMES, DAY_SHORT, SELECTABLE_ROOM_KINDS, minutesToLabel, type RoomKind,
 } from '../data/model'
 import { FEATURE_PRESETS, ROOM_SPECIALISATIONS, specialisationById } from '../data/records'
 import { prettyRange } from '../data/academicCalendar'
 import { HELP } from '../data/help'
 
-type StepId = 'institution' | 'calendar' | 'programs' | 'rooms' | 'faculty' | 'review'
+type StepId =
+  | 'identity' | 'hierarchy' | 'grid' | 'rooms'
+  | 'profiles' | 'programs' | 'staff' | 'term' | 'review'
 
-const STEPS: { id: StepId; name: string; blurb: string }[] = [
-  { id: 'institution', name: 'Institution', blurb: 'Name, year and term' },
-  { id: 'calendar', name: 'Teaching week', blurb: 'Days, hours, the slot grid and the term' },
-  { id: 'programs', name: 'Programmes', blurb: 'Students, sections and course load' },
+/**
+ * Two setups, not one.
+ *
+ * The review's first structural point: most of what the old six-step wizard
+ * asked for does not change from one term to the next. How many floors a block
+ * has, which schools sit under which faculty, when the morning shift ends —
+ * these are properties of the institution, entered once. Sections, staffing,
+ * curriculum policy and term dates are what a timetable manager actually
+ * revisits each session.
+ *
+ * Mixing them meant re-reading the whole institution every term to change four
+ * numbers, and put the settings with the widest blast radius directly in the
+ * path of routine work. They are now separate screens, and the constant one is
+ * locked by default.
+ */
+export type SetupMode = 'institution' | 'term'
+
+const INSTITUTION_STEPS: { id: StepId; name: string; blurb: string }[] = [
+  { id: 'identity', name: 'Identity', blurb: 'What the institution is called' },
+  { id: 'hierarchy', name: 'Hierarchy', blurb: 'Faculties, schools and departments' },
+  { id: 'grid', name: 'Teaching day', blurb: 'Days, hours, shifts and the slot grid' },
   { id: 'rooms', name: 'Rooms', blurb: 'Blocks, floors and specialised labs' },
-  { id: 'faculty', name: 'Faculty', blurb: 'Headcount, ranks and legal caps' },
+]
+
+const TERM_STEPS: { id: StepId; name: string; blurb: string }[] = [
+  { id: 'profiles', name: 'Curriculum', blurb: 'Which batch policy this year follows' },
+  { id: 'programs', name: 'Programmes', blurb: 'Students, sections and course load' },
+  { id: 'staff', name: 'Staff', blurb: 'Headcount, designations and load' },
+  { id: 'term', name: 'Term', blurb: 'Dates and the academic calendar' },
   { id: 'review', name: 'Review', blurb: 'Feasibility before you solve' },
 ]
+
+const STEPS_FOR: Record<SetupMode, { id: StepId; name: string; blurb: string }[]> = {
+  institution: INSTITUTION_STEPS,
+  term: TERM_STEPS,
+}
 
 let uid = 1
 const nextId = (prefix: string) => `${prefix}-${Date.now().toString(36)}-${uid++}`
 
-export function Setup() {
-  const { config, summary, setConfig, resetConfig, completeSetup, setupComplete, solving } = useApp()
-  const [step, setStep] = useState<StepId>('institution')
+/** Yearly setup — what a timetable manager revisits each session. */
+export function Setup() { return <SetupWizard mode="term" /> }
+
+/** One-time setup — the shape of the institution itself. */
+export function InstitutionSetup() { return <SetupWizard mode="institution" /> }
+
+function SetupWizard({ mode }: { mode: SetupMode }) {
+  const {
+    config, draftConfig, summary, editDraft, commitDraft, discardDraft,
+    resetConfig, completeSetup, solving,
+  } = useApp()
+  const STEPS = STEPS_FOR[mode]
+  const [step, setStep] = useState<StepId>(STEPS[0].id)
+  const [confirming, setConfirming] = useState(false)
+  /* Constant settings are locked on arrival. A timetable manager has no reason
+     to be in here, and the review was clear that edits at this level ripple
+     through the whole database. */
+  const [unlocked, setUnlocked] = useState(mode === 'term')
   const toast = useToast()
   const navigate = useNavigate()
 
   const index = STEPS.findIndex(s => s.id === step)
   const blocked = summary.errors.length > 0
 
-  const patch = (p: Partial<SetupConfig>) => setConfig(p)
+  /* Everything on this screen edits a draft. The preview moves as you type, so
+     the impact of a change is visible, but nothing is written to the project
+     until Save — changing the shape of the institution reaches every course,
+     section, room and person derived from it. */
+  const shown = draftConfig ?? config
+  const dirty = draftConfig !== null
+  const patch = (p: Partial<SetupConfig>) => editDraft(p)
+
+  /* Which top-level settings differ, so the prompt can say what it is about to
+     do rather than asking a bare "are you sure". */
+  const changed = useMemo(() => {
+    if (!draftConfig) return []
+    return (Object.keys(draftConfig) as (keyof SetupConfig)[]).filter(
+      k => JSON.stringify(draftConfig[k]) !== JSON.stringify(config[k]))
+  }, [draftConfig, config])
+  const changedCount = changed.length
 
   const finish = async () => {
+    /* The preview shows the draft but `completeSetup` solves the saved config.
+       Generating with changes outstanding would quietly schedule the old
+       institution and show it beside the new figures. */
+    if (dirty) {
+      toast('Save your changes before generating', 'danger')
+      setConfirming(true)
+      return
+    }
     if (blocked) {
       toast('Resolve the blocking issues before generating', 'danger')
       setStep('review')
@@ -55,20 +125,44 @@ export function Setup() {
   return (
     <div className="fade-in">
       <Hero
-        eyebrow={setupComplete ? 'Institution setup' : 'Step 1 — describe your institution'}
-        title={<>Tell Aula <strong>what you actually have</strong></>}
-        desc="Every number below is yours to set — students, programmes, classrooms, staff, hours. The engine schedules against these figures and nothing else."
+        eyebrow={mode === 'institution' ? 'One-time setup' : 'Setup for this term'}
+        title={mode === 'institution'
+          ? <>The shape of <strong>your institution</strong></>
+          : <>What you are running <strong>this term</strong></>}
+        desc={mode === 'institution'
+          ? 'Faculties, schools, blocks, floors and the shape of the teaching day. Entered once — a timetable manager should never need to come here.'
+          : 'Sections, staffing, curriculum policy and term dates. These are the figures that change from one session to the next.'}
         side={
           <div className="row" style={{ gap: 8 }}>
             <Pill tone={blocked ? 'danger' : 'ok'}>
               {blocked ? `${summary.errors.length} blocking` : 'Configuration valid'}
             </Pill>
-            <button className="btn btn-ghost" onClick={() => { resetConfig(); toast('Reset to defaults') }}>
-              Reset
-            </button>
+            {mode === 'institution' && (
+              <button
+                className={`btn ${unlocked ? 'btn-soft' : 'btn-ghost'}`}
+                onClick={() => setUnlocked(u => !u)}
+              >
+                {unlocked ? '🔓 Editing' : '🔒 Unlock to edit'}
+              </button>
+            )}
+            {mode === 'institution' && (
+              <button className="btn btn-ghost" onClick={() => { resetConfig(); toast('Reset to defaults') }}>
+                Reset
+              </button>
+            )}
           </div>
         }
       />
+
+      {mode === 'institution' && !unlocked && (
+        <main className="page" style={{ paddingBottom: 0 }}>
+          <Callout tone="info" title="These settings are locked">
+            They describe the institution itself and everything else is built from them.
+            Unlock only when the estate, the hierarchy or the shape of the teaching day
+            has actually changed. Routine work belongs in <Link to="/setup">this term's setup</Link>.
+          </Callout>
+        </main>
+      )}
 
       <main className="page">
         <div className="wizard">
@@ -90,10 +184,10 @@ export function Setup() {
 
             <div className="wizard-summary">
               <div className="spread small"><span className="muted">Students</span><b className="tnum">{summary.students.toLocaleString()}</b></div>
-              <div className="spread small"><span className="muted">Cohorts</span><b className="tnum">{summary.cohorts}</b></div>
+              <div className="spread small"><span className="muted">Sections</span><b className="tnum">{summary.cohorts}</b></div>
               <div className="spread small"><span className="muted">Courses</span><b className="tnum">{summary.courses}</b></div>
               <div className="spread small"><span className="muted">Rooms</span><b className="tnum">{summary.rooms}</b></div>
-              <div className="spread small"><span className="muted">Faculty</span><b className="tnum">{summary.facultyTotal}</b></div>
+              <div className="spread small"><span className="muted">Staff</span><b className="tnum">{summary.staffTotal}</b></div>
               <div className="divider" />
               <Meter
                 value={Number.isFinite(summary.pressure) ? Math.min(summary.pressure, 1) : 1}
@@ -107,12 +201,17 @@ export function Setup() {
           </nav>
 
           <div className="wizard-body">
-            {step === 'institution' && <StepInstitution config={config} patch={patch} />}
-            {step === 'calendar' && <StepCalendar config={config} patch={patch} />}
-            {step === 'programs' && <StepPrograms config={config} patch={patch} />}
-            {step === 'rooms' && <StepRooms config={config} patch={patch} />}
-            {step === 'faculty' && <StepFaculty config={config} patch={patch} />}
-            {step === 'review' && <StepReview />}
+            <fieldset className="wizard-fields" disabled={!unlocked}>
+              {step === 'identity' && <StepIdentity config={shown} patch={patch} />}
+              {step === 'hierarchy' && <StepHierarchy config={shown} patch={patch} />}
+              {step === 'grid' && <StepGrid config={shown} patch={patch} />}
+              {step === 'rooms' && <StepRooms config={shown} patch={patch} />}
+              {step === 'profiles' && <StepProfiles config={shown} patch={patch} />}
+              {step === 'programs' && <StepPrograms config={shown} patch={patch} />}
+              {step === 'staff' && <StepStaff config={shown} patch={patch} />}
+              {step === 'term' && <StepTerm config={shown} patch={patch} />}
+              {step === 'review' && <StepReview />}
+            </fieldset>
 
             <div className="wizard-actions">
               <button
@@ -127,6 +226,8 @@ export function Setup() {
                   <button className="btn btn-primary" onClick={() => setStep(STEPS[index + 1].id)}>
                     Continue →
                   </button>
+                ) : mode === 'institution' ? (
+                  <Link className="btn btn-primary" to="/setup">Set up this term →</Link>
                 ) : (
                   <button className="btn btn-primary" onClick={finish} disabled={solving}>
                     {solving ? 'Solving…' : '✦ Generate timetable'}
@@ -137,6 +238,60 @@ export function Setup() {
           </div>
         </div>
       </main>
+
+      {/* The review was explicit that institution changes must not save as you
+          type, and that saving should ask. This bar appears only once there is
+          something to save, and names how many settings changed. */}
+      {dirty && (
+        <div className="draft-bar" role="status">
+          <span className="draft-mark" aria-hidden>●</span>
+          <span className="draft-text">
+            <b>{changedCount}</b> unsaved {changedCount === 1 ? 'change' : 'changes'} to
+            {mode === 'institution' ? ' institution settings' : " this term's setup"} —
+            the preview reflects {changedCount === 1 ? 'it' : 'them'}; the project does not.
+          </span>
+          <button className="btn btn-ghost" onClick={() => { discardDraft(); toast('Changes discarded') }}>
+            Discard
+          </button>
+          <button className="btn btn-primary" onClick={() => setConfirming(true)}>
+            Save changes
+          </button>
+        </div>
+      )}
+
+      {confirming && (
+        <Dialog
+          title="Save these changes?"
+          subtitle={`${changedCount} ${changedCount === 1 ? 'setting' : 'settings'} will change.`}
+          onClose={() => setConfirming(false)}
+          footer={
+            <>
+              <button className="btn btn-ghost" onClick={() => setConfirming(false)}>Cancel</button>
+              <button
+                className="btn btn-primary"
+                onClick={() => {
+                  commitDraft()
+                  setConfirming(false)
+                  toast(mode === 'institution' ? 'Institution settings saved' : 'Term setup saved', 'ok')
+                }}
+              >
+                Save changes
+              </button>
+            </>
+          }
+        >
+          <Callout tone="warn" title="This reaches everything built from these figures">
+            Courses, sections, rooms and staff are all derived from the settings on this
+            screen. Saving rebuilds them, and any timetable you have already generated
+            will need solving again.
+          </Callout>
+          {changed.length > 0 && (
+            <ul className="draft-list">
+              {changed.map(k => <li key={k}><code>{k}</code></li>)}
+            </ul>
+          )}
+        </Dialog>
+      )}
     </div>
   )
 }
@@ -150,7 +305,7 @@ interface StepProps {
   patch: (p: Partial<SetupConfig>) => void
 }
 
-function StepInstitution({ config, patch }: StepProps) {
+function StepIdentity({ config, patch }: StepProps) {
   const inst = config.institution
   return (
     <Section title="Institution" hint="Appears on every exported timetable">
@@ -165,18 +320,163 @@ function StepInstitution({ config, patch }: StepProps) {
           <Field label="Term">
             <TextInput value={inst.term} onChange={v => patch({ institution: { ...inst, term: v } })} />
           </Field>
-          <Field label="Generator seed" hint={HELP.seed}>
-            <NumberInput value={config.seed} min={1} onChange={n => patch({ seed: n })} />
-          </Field>
         </div>
+
+        {/* The seed decides which of several equally valid schedules you get.
+            It is worth having — two runs of the same figures reproduce exactly
+            — but it is not something a timetable manager sets, and sitting
+            beside the institution's name it read like one. */}
+        <details className="card-pad advanced">
+          <summary className="small muted">Advanced</summary>
+          <div className="field-grid" style={{ marginTop: 12 }}>
+            <Field label="Generator seed" hint={HELP.seed}>
+              <NumberInput value={config.seed} min={1} onChange={n => patch({ seed: n })} />
+            </Field>
+          </div>
+        </details>
       </div>
+    </Section>
+  )
+}
+
+function StepHierarchy({ config, patch }: StepProps) {
+  const setFaculties = (faculties: SetupConfig['faculties']) => patch({ faculties })
+  const setSchools = (schools: SetupConfig['schools']) => patch({ schools })
+
+  return (
+    <Section
+      title="Academic hierarchy"
+      hint="Faculty, then school, then department. Programmes attach to departments."
+    >
+      <Callout tone="info" title="Why this shape">
+        Every picker in the app scopes itself by this tree. Getting it right is what
+        stops a seventh-semester CSE screen offering first-year sections and the whole
+        university&rsquo;s staff.
+      </Callout>
+
+      <div style={{ height: 16 }} />
+
+      <Section title="Faculties" hint="The top-level divisions, e.g. FOSTA">
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <table className="table">
+            <thead><tr><th style={{ width: 110 }}>Code</th><th>Name</th><th style={{ width: 70 }} /></tr></thead>
+            <tbody>
+              {config.faculties.map((f, i) => (
+                <tr key={f.id}>
+                  <td>
+                    <TextInput
+                      value={f.code} ariaLabel="Faculty code"
+                      onChange={v => {
+                        const next = [...config.faculties]
+                        next[i] = { ...f, code: v.toUpperCase() }
+                        setFaculties(next)
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <TextInput
+                      value={f.name} ariaLabel="Faculty name"
+                      onChange={v => {
+                        const next = [...config.faculties]
+                        next[i] = { ...f, name: v }
+                        setFaculties(next)
+                      }}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button
+                      className="btn btn-danger-soft"
+                      disabled={config.faculties.length <= 1}
+                      title={config.faculties.length <= 1 ? 'At least one faculty is required' : undefined}
+                      onClick={() => setFaculties(config.faculties.filter((_, x) => x !== i))}
+                    >Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="card-pad">
+            <button
+              className="btn btn-soft"
+              onClick={() => setFaculties([...config.faculties, {
+                id: nextId('fac'), code: 'NEW', name: 'New faculty',
+              }])}
+            >+ Add faculty</button>
+          </div>
+        </div>
+      </Section>
+
+      <div style={{ height: 20 }} />
+
+      <Section title="Schools" hint="Each sits under a faculty">
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <table className="table">
+            <thead><tr><th style={{ width: 110 }}>Code</th><th>Name</th><th style={{ width: 220 }}>Faculty</th><th style={{ width: 70 }} /></tr></thead>
+            <tbody>
+              {config.schools.map((s, i) => (
+                <tr key={s.id}>
+                  <td>
+                    <TextInput
+                      value={s.code} ariaLabel="School code"
+                      onChange={v => {
+                        const next = [...config.schools]
+                        next[i] = { ...s, code: v.toUpperCase() }
+                        setSchools(next)
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <TextInput
+                      value={s.name} ariaLabel="School name"
+                      onChange={v => {
+                        const next = [...config.schools]
+                        next[i] = { ...s, name: v }
+                        setSchools(next)
+                      }}
+                    />
+                  </td>
+                  <td>
+                    <Combobox
+                      value={s.faculty}
+                      ariaLabel="Faculty"
+                      options={config.faculties.map(f => ({ value: f.id, label: f.name, hint: f.code }))}
+                      onChange={v => {
+                        const next = [...config.schools]
+                        next[i] = { ...s, faculty: v }
+                        setSchools(next)
+                      }}
+                    />
+                  </td>
+                  <td style={{ textAlign: 'right' }}>
+                    <button
+                      className="btn btn-danger-soft"
+                      disabled={config.schools.length <= 1}
+                      title={config.schools.length <= 1 ? 'At least one school is required' : undefined}
+                      onClick={() => setSchools(config.schools.filter((_, x) => x !== i))}
+                    >Remove</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div className="card-pad">
+            <button
+              className="btn btn-soft"
+              onClick={() => setSchools([...config.schools, {
+                id: nextId('sch'), code: 'NEW', name: 'New school',
+                faculty: config.faculties[0]?.id ?? '',
+              }])}
+            >+ Add school</button>
+          </div>
+        </div>
+      </Section>
 
       <div style={{ height: 20 }} />
 
       <Section title="Departments" hint="Programmes attach to these">
         <div className="card" style={{ overflow: 'hidden' }}>
           <table className="table">
-            <thead><tr><th style={{ width: 120 }}>Code</th><th>Name</th><th style={{ width: 70 }} /></tr></thead>
+            <thead><tr><th style={{ width: 110 }}>Code</th><th>Name</th><th style={{ width: 220 }}>School</th><th style={{ width: 70 }} /></tr></thead>
             <tbody>
               {config.departments.map((d, i) => (
                 <tr key={i}>
@@ -200,6 +500,21 @@ function StepInstitution({ config, patch }: StepProps) {
                       }}
                     />
                   </td>
+                  <td>
+                    <Combobox
+                      value={d.school}
+                      ariaLabel="School"
+                      emptyText="Add a school first"
+                      options={config.schools.map(s => ({
+                        value: s.id, label: s.name, hint: s.code,
+                      }))}
+                      onChange={v => {
+                        const next = [...config.departments]
+                        next[i] = { ...d, school: v }
+                        patch({ departments: next })
+                      }}
+                    />
+                  </td>
                   <td style={{ textAlign: 'right' }}>
                     <button
                       className="btn btn-danger-soft"
@@ -213,7 +528,8 @@ function StepInstitution({ config, patch }: StepProps) {
           <div className="card-pad">
             <button
               className="btn btn-soft"
-              onClick={() => patch({ departments: [...config.departments, { code: 'NEW', name: 'New department' }] })}
+              onClick={() => patch({ departments: [...config.departments,
+                { code: 'NEW', name: 'New department', school: config.schools[0]?.id ?? '' }] })}
             >+ Add department</button>
           </div>
         </div>
@@ -222,18 +538,28 @@ function StepInstitution({ config, patch }: StepProps) {
   )
 }
 
-function StepCalendar({ config, patch }: StepProps) {
+/**
+ * The shape of the teaching day.
+ *
+ * Constant for the institution: when the day starts and ends, how long a period
+ * is, where the shifts divide it. Split out of the old combined calendar step
+ * because term dates change every session and none of this does.
+ */
+function StepGrid({ config, patch }: StepProps) {
   const cal = config.calendar
   const set = (p: Partial<typeof cal>) => patch({ calendar: { ...cal, ...p } })
-  const perDay = slotsPerDay(cal)
+  const plan = useMemo(() => slotPlan(cal), [cal])
+  const perDay = plan.starts.length
+  const shortFinal = perDay > 0 && plan.durations[perDay - 1] !== cal.slotMinutes
 
-  const preview = useMemo(() => {
-    const start = labelToMinutes(cal.dayStart)
-    return Array.from({ length: Math.min(perDay, 16) }, (_, i) => minutesToLabel(start + i * cal.slotMinutes))
-  }, [cal.dayStart, cal.slotMinutes, perDay])
+  const setShift = (i: number, s: Partial<ShiftConfig>) => {
+    const next = [...cal.shifts]
+    next[i] = { ...next[i], ...s }
+    set({ shifts: next })
+  }
 
   return (
-    <Section title="Teaching week" hint="The grid every session must land on">
+    <Section title="Teaching day" hint="The grid every session must land on">
       <div className="card card-pad">
         <Field label="Working days" wide hint="Click to include or exclude a day.">
           <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
@@ -261,25 +587,108 @@ function StepCalendar({ config, patch }: StepProps) {
         <div className="field-grid">
           <Field label="Day starts"><TextInput type="time" value={cal.dayStart} onChange={v => set({ dayStart: v })} /></Field>
           <Field label="Day ends"><TextInput type="time" value={cal.dayEnd} onChange={v => set({ dayEnd: v })} /></Field>
-          <Field label="Slot length"><NumberInput value={cal.slotMinutes} min={15} max={240} step={5} suffix="min" onChange={n => set({ slotMinutes: n })} /></Field>
+          <Field label="Period length"><NumberInput value={cal.slotMinutes} min={15} max={240} step={5} suffix="min" onChange={n => set({ slotMinutes: n })} /></Field>
           <Field label="Passing time" hint={HELP.passingMinutes}>
             <NumberInput value={cal.passingMinutes} min={0} max={60} step={5} suffix="min" onChange={n => set({ passingMinutes: n })} />
           </Field>
           <Field label="Lunch starts"><TextInput type="time" value={cal.lunchStart} onChange={v => set({ lunchStart: v })} /></Field>
           <Field label="Lunch length"><NumberInput value={cal.lunchMinutes} min={0} max={180} step={15} suffix="min" onChange={n => set({ lunchMinutes: n })} /></Field>
-          <Field label="Evening starts" hint={HELP.eveningStart}>
-            <TextInput type="time" value={cal.eveningStart} onChange={v => set({ eveningStart: v })} />
-          </Field>
-          <Field label="Early morning until" hint={HELP.earlyMorningUntil}>
-            <TextInput type="time" value={cal.earlyMorningUntil} onChange={v => set({ earlyMorningUntil: v })} />
+          <Field
+            label="Shortest final period"
+            hint="A day rarely divides evenly into whole periods. 0 drops the leftover; anything higher keeps a shorter last period rather than losing it, and the day still ends when you said."
+          >
+            <NumberInput
+              value={cal.minFinalSlotMinutes} min={0} max={cal.slotMinutes} step={5} suffix="min"
+              onChange={n => set({ minFinalSlotMinutes: n })}
+            />
           </Field>
         </div>
 
         <div className="divider" />
 
         <div className="spread" style={{ marginBottom: 4 }}>
+          <span className="field-label">Shifts</span>
+          {cal.shifts.length === 0 && (
+            <button className="btn btn-soft" onClick={() => set({ shifts: TWO_SHIFT_PRESET.map(s => ({ ...s })) })}>
+              Use morning / evening shifts
+            </button>
+          )}
+        </div>
+        <p className="field-hint" style={{ marginBottom: 12 }}>
+          A section belongs to one shift and is never scheduled outside it. With no
+          shifts defined, the whole day is available to everyone.
+        </p>
+
+        {cal.shifts.length === 0 ? (
+          <Callout tone="info" title="One shift — the whole day">
+            Every section may be taught at any hour of the teaching day.
+          </Callout>
+        ) : (
+          <div className="card" style={{ overflow: 'hidden' }}>
+            <table className="table">
+              <thead><tr><th>Name</th><th style={{ width: 130 }}>Starts</th><th style={{ width: 130 }}>Ends</th><th style={{ width: 70 }} /></tr></thead>
+              <tbody>
+                {cal.shifts.map((s, i) => (
+                  <tr key={s.id}>
+                    <td><TextInput value={s.name} ariaLabel="Shift name" onChange={v => setShift(i, { name: v })} /></td>
+                    <td><TextInput type="time" value={s.start} ariaLabel="Shift starts" onChange={v => setShift(i, { start: v })} /></td>
+                    <td><TextInput type="time" value={s.end} ariaLabel="Shift ends" onChange={v => setShift(i, { end: v })} /></td>
+                    <td style={{ textAlign: 'right' }}>
+                      <button
+                        className="btn btn-danger-soft"
+                        onClick={() => set({ shifts: cal.shifts.filter((_, x) => x !== i) })}
+                      >Remove</button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="card-pad">
+              <button
+                className="btn btn-soft"
+                onClick={() => set({ shifts: [...cal.shifts, {
+                  id: nextId('shift'), name: 'New shift', start: cal.dayStart, end: cal.dayEnd,
+                }] })}
+              >+ Add shift</button>
+            </div>
+          </div>
+        )}
+
+        <div className="divider" />
+
+        <div className="small muted" style={{ marginBottom: 8 }}>
+          {perDay} period{perDay === 1 ? '' : 's'} per day &times; {cal.workingDays.length} day{cal.workingDays.length === 1 ? '' : 's'} = <b className="tnum">{perDay * cal.workingDays.length}</b> teaching periods a week
+          {shortFinal && (
+            <> &middot; the last is <b className="tnum">{plan.durations[perDay - 1]}</b> min so the day ends at {cal.dayEnd}</>
+          )}
+        </div>
+        <div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
+          {plan.starts.slice(0, 16).map((m, i) => (
+            <span key={m} className={`chip mono ${plan.durations[i] !== cal.slotMinutes ? 'chip-warn' : 'chip-soft'}`}>
+              {minutesToLabel(m)}&ndash;{minutesToLabel(m + plan.durations[i])}
+            </span>
+          ))}
+          {perDay > 16 && <span className="small muted">+{perDay - 16} more</span>}
+        </div>
+      </div>
+    </Section>
+  )
+}
+
+/**
+ * Term dates. Revisited every session, which is why they are no longer beside
+ * the slot grid.
+ */
+function StepTerm({ config, patch }: StepProps) {
+  const cal = config.calendar
+  const set = (p: Partial<typeof cal>) => patch({ calendar: { ...cal, ...p } })
+
+  return (
+    <Section title="Term" hint="When this session runs, and what interrupts it">
+      <div className="card card-pad">
+        <div className="spread" style={{ marginBottom: 4 }}>
           <span className="field-label">Term dates</span>
-          <Link className="btn btn-ghost" to="/calendar">Open the academic calendar →</Link>
+          <Link className="btn btn-ghost" to="/calendar">Open the academic calendar &rarr;</Link>
         </div>
         <p className="field-hint" style={{ marginBottom: 12 }}>{HELP.termDates}</p>
         <div className="field-grid">
@@ -307,17 +716,151 @@ function StepCalendar({ config, patch }: StepProps) {
         </div>
 
         <CalendarImpactStrip />
+      </div>
+    </Section>
+  )
+}
 
-        <div className="divider" />
+/**
+ * Which batch's curriculum policy this year follows.
+ *
+ * Policy changes between intakes and the programme does not, so a profile
+ * states only the difference. "Copy from" is the point of the feature: a new
+ * batch starts as a clone of the one it resembles.
+ */
+function StepProfiles({ config, patch }: StepProps) {
+  const live = config.profiles.filter(p => !p.archived)
+  const archived = config.profiles.filter(p => p.archived)
+  const assignments = config.overrides?.profiles ?? {}
 
-        <div className="small muted" style={{ marginBottom: 8 }}>
-          {perDay} slot{perDay === 1 ? '' : 's'} per day × {cal.workingDays.length} day{cal.workingDays.length === 1 ? '' : 's'} = <b className="tnum">{perDay * cal.workingDays.length}</b> teaching slots a week
-        </div>
-        <div className="row" style={{ gap: 5, flexWrap: 'wrap' }}>
-          {preview.map(t => <span key={t} className="chip chip-soft mono">{t}</span>)}
-          {perDay > 16 && <span className="small muted">+{perDay - 16} more</span>}
+  const setProfiles = (profiles: SetupConfig['profiles']) => patch({ profiles })
+  const assign = (key: string, id: string) => patch({
+    overrides: { ...config.overrides, profiles: { ...assignments, [key]: id } },
+  })
+
+  return (
+    <Section title="Curriculum policy" hint="What each year of each programme actually carries">
+      <Callout tone="info" title="Why batches differ">
+        Course load changes between intakes &mdash; one year takes a single elective, the
+        next takes two &mdash; while the programme itself does not. A profile records only
+        what changed, so nothing else has to be restated.
+      </Callout>
+
+      <div style={{ height: 16 }} />
+
+      <div className="card" style={{ overflow: 'hidden' }}>
+        <table className="table">
+          <thead><tr><th>Name</th><th style={{ width: 160 }}>Intake</th><th style={{ width: 120 }}>Changes</th><th style={{ width: 190 }} /></tr></thead>
+          <tbody>
+            {live.map((prof, i) => (
+              <tr key={prof.id}>
+                <td>
+                  <TextInput
+                    value={prof.name} ariaLabel="Profile name"
+                    onChange={v => {
+                      const next = [...config.profiles]
+                      next[config.profiles.indexOf(live[i])] = { ...prof, name: v }
+                      setProfiles(next)
+                    }}
+                  />
+                </td>
+                <td>
+                  <TextInput
+                    value={prof.batchLabel} placeholder="2025-2029" ariaLabel="Intake"
+                    onChange={v => {
+                      const next = [...config.profiles]
+                      next[config.profiles.indexOf(live[i])] = { ...prof, batchLabel: v }
+                      setProfiles(next)
+                    }}
+                  />
+                </td>
+                <td className="small muted tnum">{Object.keys(prof.policy).length}</td>
+                <td style={{ textAlign: 'right' }}>
+                  <button
+                    className="btn btn-ghost"
+                    onClick={() => setProfiles([...config.profiles,
+                      copyProfile(prof, `${prof.name} (copy)`, '')])}
+                  >Copy from</button>
+                  <button
+                    className="btn btn-danger-soft"
+                    style={{ marginLeft: 8 }}
+                    disabled={live.length <= 1}
+                    title={live.length <= 1 ? 'At least one live profile is required' : 'Keeps it for old timetables but stops offering it'}
+                    onClick={() => {
+                      const next = [...config.profiles]
+                      next[config.profiles.indexOf(live[i])] = { ...prof, archived: true }
+                      setProfiles(next)
+                    }}
+                  >Archive</button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <div className="card-pad">
+          <button
+            className="btn btn-soft"
+            onClick={() => setProfiles([...config.profiles, {
+              id: nextId('profile'), name: 'New profile', batchLabel: '',
+              archived: false, policy: {},
+            }])}
+          >+ Add profile</button>
         </div>
       </div>
+
+      {archived.length > 0 && (
+        <details className="card-pad advanced" style={{ marginTop: 14 }}>
+          <summary className="small muted">{archived.length} archived</summary>
+          <div style={{ marginTop: 10 }}>
+            {archived.map(prof => (
+              <div key={prof.id} className="spread small" style={{ padding: '5px 0' }}>
+                <span>{prof.name}{prof.batchLabel ? ` · ${prof.batchLabel}` : ''}</span>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => setProfiles(config.profiles.map(
+                    x => (x.id === prof.id ? { ...x, archived: false } : x)))}
+                >Restore</button>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
+
+      <div style={{ height: 20 }} />
+
+      <Section title="Which year follows which" hint="Leave unset to follow the first live profile">
+        <div className="card" style={{ overflow: 'hidden' }}>
+          <table className="table">
+            <thead><tr><th>Programme</th><th style={{ width: 90 }}>Year</th><th style={{ width: 260 }}>Profile</th></tr></thead>
+            <tbody>
+              {config.programs.flatMap(prog => (
+                Array.from({ length: Math.max(1, prog.years) }, (_, y) => {
+                  const key = `${prog.id}:${y + 1}`
+                  return (
+                    <tr key={key}>
+                      <td className="small">{prog.code}</td>
+                      <td className="small tnum">{y + 1}</td>
+                      <td>
+                        <Combobox
+                          value={assignments[key] ?? ''}
+                          ariaLabel={`Profile for ${prog.code} year ${y + 1}`}
+                          options={[
+                            { value: '', label: 'Default', hint: live[0]?.name ?? '' },
+                            ...live.map(prof => ({
+                              value: prof.id, label: prof.name, hint: prof.batchLabel,
+                            })),
+                          ]}
+                          onChange={v => assign(key, v)}
+                        />
+                      </td>
+                    </tr>
+                  )
+                })
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </Section>
     </Section>
   )
 }
@@ -330,7 +873,7 @@ function StepPrograms({ config, patch }: StepProps) {
   }
 
   return (
-    <Section title="Programmes" hint="Students exist as cohorts — sections the engine schedules as a unit">
+    <Section title="Programmes" hint="Students are taught in sections, which the engine schedules as a unit">
       <div className="stack" style={{ gap: 14 }}>
         {config.programs.map((p, i) => {
           const cohorts = p.years * p.sectionsPerYear
@@ -351,9 +894,12 @@ function StepPrograms({ config, patch }: StepProps) {
               <div className="card-pad">
                 <div className="field-grid">
                   <Field label="Department">
-                    <select className="select" value={p.dept} onChange={e => update(i, { dept: e.target.value })} aria-label="Department">
-                      {config.departments.map(d => <option key={d.code} value={d.code}>{d.code} — {d.name}</option>)}
-                    </select>
+                    <Combobox
+                      value={p.dept}
+                      ariaLabel="Department"
+                      options={config.departments.map(d => ({ value: d.code, label: d.code, hint: d.name }))}
+                      onChange={v => update(i, { dept: v })}
+                    />
                   </Field>
                   <Field label="Mode">
                     <Segmented
@@ -530,34 +1076,24 @@ function StepRooms({ config, patch }: StepProps) {
                   <div className="field-grid">
                     {config.campuses.length > 1 && (
                       <Field label="Campus">
-                        <select
-                          className="select"
+                        <Combobox
                           value={b.campus}
-                          aria-label="Campus"
-                          onChange={e => updateBuilding(i, { campus: e.target.value })}
-                        >
-                          {config.campuses.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
+                          ariaLabel="Campus"
+                          options={config.campuses.map(c => ({ value: c.id, label: c.name }))}
+                          onChange={v => updateBuilding(i, { campus: v })}
+                        />
                       </Field>
                     )}
                     <Field label="Number of floors" hint={HELP.floors}>
-                      <select
-                        className="select"
-                        value={b.floors}
-                        aria-label="Number of floors"
-                        onChange={e => updateBuilding(i, { floors: Number(e.target.value) })}
-                      >
-                        {Array.from({ length: 20 }, (_, k) => k + 1).map(n => (
-                          <option key={n} value={n}>
-                            {n} floor{n === 1 ? '' : 's'}{n === 1 ? ' (ground only)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </Field>
-                    <Field label="Walk time to other blocks" hint={HELP.walkMinutes}>
-                      <NumberInput
-                        value={b.walkMinutes} min={0} max={120} suffix="min" ariaLabel="Walk time"
-                        onChange={n => updateBuilding(i, { walkMinutes: n })}
+                      <Combobox
+                        value={String(b.floors)}
+                        ariaLabel="Number of floors"
+                        options={Array.from({ length: 20 }, (_, k) => k + 1).map(n => ({
+                          value: String(n),
+                          label: `${n} floor${n === 1 ? '' : 's'}`,
+                          hint: n === 1 ? 'ground only' : undefined,
+                        }))}
+                        onChange={v => updateBuilding(i, { floors: Number(v) })}
                       />
                     </Field>
                     <Field label="Access" hint={HELP.hasElevator}>
@@ -628,27 +1164,25 @@ function StepRooms({ config, patch }: StepProps) {
                           <div key={g.id}>
                             <div className="room-line">
                               <Field label="Facility" hint={undefined}>
-                                <select
-                                  className="select"
+                                <Combobox
                                   value={g.specialisation ?? ''}
-                                  aria-label="Facility"
-                                  onChange={e => applySpecialisation(g, e.target.value)}
-                                >
-                                  <option value="">General purpose</option>
-                                  {ROOM_SPECIALISATIONS.map(sp => (
-                                    <option key={sp.id} value={sp.id} title={sp.hint}>{sp.label}</option>
-                                  ))}
-                                </select>
+                                  ariaLabel="Facility"
+                                  options={[
+                                    { value: '', label: 'General purpose' },
+                                    ...ROOM_SPECIALISATIONS.map(sp => ({
+                                      value: sp.id, label: sp.label, keywords: sp.hint,
+                                    })),
+                                  ]}
+                                  onChange={v => applySpecialisation(g, v)}
+                                />
                               </Field>
                               <Field label="Room type">
-                                <select
-                                  className="select"
+                                <Combobox
                                   value={g.kind}
-                                  aria-label="Room type"
-                                  onChange={e => updateGroup(g.id, { kind: e.target.value as RoomKind })}
-                                >
-                                  {ROOM_KINDS.map(k => <option key={k} value={k}>{k}</option>)}
-                                </select>
+                                  ariaLabel="Room type"
+                                  options={SELECTABLE_ROOM_KINDS.map(k => ({ value: k, label: k }))}
+                                  onChange={v => updateGroup(g.id, { kind: v as RoomKind })}
+                                />
                               </Field>
                               <Field label="How many">
                                 <NumberInput
@@ -740,13 +1274,13 @@ function StepRooms({ config, patch }: StepProps) {
 }
 
 
-function StepFaculty({ config, patch }: StepProps) {
-  const f = config.faculty
-  const set = (p: Partial<typeof f>) => patch({ faculty: { ...f, ...p } })
+function StepStaff({ config, patch }: StepProps) {
+  const f = config.staff
+  const set = (p: Partial<typeof f>) => patch({ staff: { ...f, ...p } })
   const mixSum = Object.values(f.mix).reduce((a, b) => a + b, 0)
 
   return (
-    <Section title="Faculty" hint="Headcount and the legal caps of constraints 11–30">
+    <Section title="Staff" hint="Headcount and the legal caps of constraints 11–30">
       <div className="card card-pad">
         <div className="field-grid">
           <Field label="Total teaching staff"><NumberInput value={f.total} min={1} max={5000} onChange={n => set({ total: n })} /></Field>
@@ -803,7 +1337,7 @@ function StepFaculty({ config, patch }: StepProps) {
 
 function StepReview() {
   const { summary, config } = useApp()
-  const capacity = summary.facultyTotal * config.faculty.maxPerWeek
+  const capacity = summary.staffTotal * config.staff.maxPerWeek
 
   return (
     <Section title="Feasibility review" hint="Checked before a single session is placed">

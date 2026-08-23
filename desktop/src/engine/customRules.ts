@@ -18,13 +18,13 @@ function inScope(c: Candidate, ctx: EngineCtx, k: CustomConstraint): boolean {
   switch (kind) {
     case 'all': return true
     case 'cohort': return c.cohort.id === id
-    case 'faculty': return c.faculty.id === id
+    case 'staff': return c.staff.id === id
     case 'course': return c.course.id === id
     case 'room': return c.room?.id === id
     case 'department': {
       const dept = ctx.inst.departments.find(d => d.id === id || d.code === id)
       if (!dept) return false
-      return c.cohort.deptId === dept.id || c.course.deptId === dept.id || c.faculty.deptId === dept.id
+      return c.cohort.deptId === dept.id || c.course.deptId === dept.id || c.staff.deptId === dept.id
     }
     default: return false
   }
@@ -39,7 +39,7 @@ const str = (k: CustomConstraint, key: string, d = '') =>
 /** Sessions already placed for whatever this rule is scoped to, on one day. */
 function scopedOnDay(c: Candidate, occ: Occupancy, k: CustomConstraint, day: number) {
   switch (k.scope.kind) {
-    case 'faculty': return occ.facultyOnDay(c.faculty.id, day)
+    case 'staff': return occ.staffOnDay(c.staff.id, day)
     case 'cohort': return occ.cohortOnDay(c.cohort.id, day)
     default:
       // department / all: approximate with the cohort's own day, which is the

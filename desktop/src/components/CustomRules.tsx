@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useApp } from '../store'
 import { useToast } from './Toast'
-import { Callout, Field, NumberInput, Section, Switch, TextInput } from './ui'
+import { Callout, Combobox, Field, NumberInput, Section, Switch, TextInput } from './ui'
 import {
   TEMPLATES, TEMPLATE_BY_ID,
   type CustomConstraint, type CustomTemplate, type ScopeKind,
@@ -11,7 +11,7 @@ import { DAY_NAMES, DAY_SHORT } from '../data/model'
 const SCOPE_LABELS: Record<ScopeKind, string> = {
   all: 'Everyone',
   cohort: 'One cohort',
-  faculty: 'One staff member',
+  staff: 'One staff member',
   department: 'One department',
   course: 'One course',
   room: 'One room',
@@ -62,42 +62,37 @@ export function CustomRules() {
         <div className="card card-pad" style={{ marginBottom: 14 }}>
           <div className="field-grid">
             <Field label="Rule" hint={meta.blurb}>
-              <select
-                className="select"
+              <Combobox
                 value={template}
-                aria-label="Rule type"
-                onChange={e => {
-                  const next = e.target.value as CustomTemplate
+                ariaLabel="Rule type"
+                options={TEMPLATES.map(t => ({ value: t.id, label: t.name, keywords: t.blurb }))}
+                onChange={v => {
+                  const next = v as CustomTemplate
                   setTemplate(next)
                   const scopes = TEMPLATE_BY_ID.get(next)!.scopes
                   if (!scopes.includes(scopeKind)) setScopeKind(scopes[0])
                 }}
-              >
-                {TEMPLATES.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
-              </select>
+              />
             </Field>
 
             <Field label="Applies to">
-              <select
-                className="select"
+              <Combobox
                 value={scopeKind}
-                aria-label="Scope"
-                onChange={e => setScopeKind(e.target.value as ScopeKind)}
-              >
-                {allowedScopes.map(s => <option key={s} value={s}>{SCOPE_LABELS[s]}</option>)}
-              </select>
+                ariaLabel="Scope"
+                options={allowedScopes.map(s => ({ value: s, label: SCOPE_LABELS[s] }))}
+                onChange={v => setScopeKind(v as ScopeKind)}
+              />
             </Field>
 
             {scopeKind !== 'all' && (
               <Field label="Which one">
-                <select
-                  className="select"
+                <Combobox
                   value={effectiveScopeId}
-                  aria-label="Scope target"
-                  onChange={e => setScopeId(e.target.value)}
-                >
-                  {options.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
-                </select>
+                  ariaLabel="Scope target"
+                  emptyText="Nothing of that kind exists yet"
+                  options={options.map(o => ({ value: o.id, label: o.label }))}
+                  onChange={setScopeId}
+                />
               </Field>
             )}
           </div>
@@ -183,43 +178,39 @@ function CustomRuleRow(props: {
               if (p.kind === 'day') {
                 return (
                   <Field key={p.key} label={p.label}>
-                    <select
-                      className="select"
+                    <Combobox
                       value={String(value ?? 0)}
-                      aria-label={p.label}
-                      onChange={e => set({ params: { ...rule.params, [p.key]: Number(e.target.value) } })}
-                    >
-                      {grid.days.map(d => <option key={d} value={d}>{DAY_NAMES[d]}</option>)}
-                    </select>
+                      ariaLabel={p.label}
+                      options={grid.days.map(d => ({ value: String(d), label: DAY_NAMES[d] }))}
+                      onChange={v => set({ params: { ...rule.params, [p.key]: Number(v) } })}
+                    />
                   </Field>
                 )
               }
               if (p.kind === 'slot') {
                 return (
                   <Field key={p.key} label={p.label}>
-                    <select
-                      className="select"
+                    <Combobox
                       value={String(value ?? 0)}
-                      aria-label={p.label}
-                      onChange={e => set({ params: { ...rule.params, [p.key]: Number(e.target.value) } })}
-                    >
-                      {grid.labels.map((l, i) => <option key={l} value={i}>{l}</option>)}
-                    </select>
+                      ariaLabel={p.label}
+                      options={grid.labels.map((l, i) => ({ value: String(i), label: l }))}
+                      onChange={v => set({ params: { ...rule.params, [p.key]: Number(v) } })}
+                    />
                   </Field>
                 )
               }
               if (p.kind === 'building') {
                 return (
                   <Field key={p.key} label={p.label}>
-                    <select
-                      className="select"
+                    <Combobox
                       value={String(value ?? '')}
-                      aria-label={p.label}
-                      onChange={e => set({ params: { ...rule.params, [p.key]: e.target.value } })}
-                    >
-                      <option value="">— choose —</option>
-                      {config.buildings.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
-                    </select>
+                      ariaLabel={p.label}
+                      options={[
+                        { value: '', label: '— choose —' },
+                        ...config.buildings.map(b => ({ value: b.id, label: b.name })),
+                      ]}
+                      onChange={v => set({ params: { ...rule.params, [p.key]: v } })}
+                    />
                   </Field>
                 )
               }
@@ -291,7 +282,7 @@ type Inst = ReturnType<typeof useApp.getState>['institution']
 function scopeOptions(kind: ScopeKind, inst: Inst): { id: string; label: string }[] {
   switch (kind) {
     case 'cohort': return inst.cohorts.map(c => ({ id: c.id, label: c.name }))
-    case 'faculty': return inst.faculty.map(f => ({ id: f.id, label: f.name }))
+    case 'staff': return inst.staff.map(f => ({ id: f.id, label: f.name }))
     case 'department': return inst.departments.map(d => ({ id: d.id, label: `${d.code} — ${d.name}` }))
     case 'course': return inst.courses.map(c => ({ id: c.id, label: `${c.code} ${c.name}` }))
     case 'room': return inst.rooms.map(r => ({ id: r.id, label: r.name }))

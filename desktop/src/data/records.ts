@@ -12,7 +12,7 @@
  */
 
 import type {
-  CourseKind, EmploymentType, FacultyRank, Institution, RoomKind,
+  CourseKind, EmploymentType, StaffRank, Institution, RoomKind,
 } from './model'
 
 /* ------------------------------------------------------------------ *
@@ -25,10 +25,10 @@ import type {
  * The fields are grouped the way an institution actually collects them:
  * identity and affiliation, what they are qualified to teach, what their
  * contract and availability allow, and where they are based. Every field
- * reaches the solver — see `facultyFromRecords` in `generator.ts` for the
+ * reaches the solver — see `staffFromRecords` in `generator.ts` for the
  * mapping, and `engine/rules.ts` for the constraints that read it.
  */
-export interface FacultyRecord {
+export interface StaffRecord {
   /* --- identity & affiliation --- */
   id: string
   /** institutional staff code shown on rosters, e.g. "CSE-114" */
@@ -37,7 +37,7 @@ export interface FacultyRecord {
   /** department code, e.g. "CSE" */
   dept: string
   /** designation — decides which weekly cap applies and seniority tie-breaks */
-  rank: FacultyRank
+  rank: StaffRank
   employment: EmploymentType
   email: string
 
@@ -77,9 +77,16 @@ export interface FacultyRecord {
 
   onSabbatical: boolean
   needsAccessibleRoom: boolean
+  /**
+   * Still on the staff. People who have left are marked inactive rather than
+   * deleted: removing them would orphan the timetables they already appear on,
+   * but leaving them selectable is how a departed colleague ends up teaching
+   * next semester. Inactive staff are not offered and are not scheduled.
+   */
+  active: boolean
 }
 
-export const PREFERRED_SHIFTS: { id: FacultyRecord['preferredShift']; label: string }[] = [
+export const PREFERRED_SHIFTS: { id: StaffRecord['preferredShift']; label: string }[] = [
   { id: 'any', label: 'No preference' },
   { id: 'morning', label: 'Mornings' },
   { id: 'afternoon', label: 'Afternoons' },
@@ -125,18 +132,26 @@ export interface RoomRecord {
 
 /** Present in a project file only once the user has edited that entity type. */
 export interface EntityOverrides {
-  faculty?: FacultyRecord[]
+  staff?: StaffRecord[]
   courses?: CourseRecord[]
   rooms?: RoomRecord[]
   /** `${programId}:${year}` -> section count, overriding the programme default */
   sections?: Record<string, number>
+  /**
+   * `${programId}:${year}:${section}` or `${programId}:${year}` -> shift id.
+   * Real intakes split a year across shifts — 4A and 4B in the morning, 4C in
+   * the evening — so the more specific key wins over the year-level one.
+   */
+  shifts?: Record<string, string>
+  /** `${programId}:${year}` -> profile id, when a year follows a different batch policy */
+  profiles?: Record<string, string>
 }
 
 /* ------------------------------------------------------------------ *
  * Materialisation — generated institution -> editable records
  * ------------------------------------------------------------------ */
 
-export function facultyRecordsFrom(inst: Institution): FacultyRecord[] {
+export function staffRecordsFrom(inst: Institution): StaffRecord[] {
   const deptCode = new Map(inst.departments.map(d => [d.id, d.code]))
   const half = Math.max(1, Math.floor(inst.grid.slots / 2))
 
@@ -145,14 +160,14 @@ export function facultyRecordsFrom(inst: Institution): FacultyRecord[] {
      single choice the editor offers, or every generated person would come back
      reading "no preference" and their preference would be silently discarded
      the first time anybody opened the list. */
-  const shiftOf = (earliest: number, latest: number): FacultyRecord['preferredShift'] => {
+  const shiftOf = (earliest: number, latest: number): StaffRecord['preferredShift'] => {
     if (earliest >= inst.grid.eveningFrom) return 'evening'
     if (earliest >= half) return 'afternoon'
     if (latest <= half) return 'morning'
     return 'any'
   }
 
-  return inst.faculty.map(f => ({
+  return inst.staff.map(f => ({
     id: f.id,
     staffCode: f.id.toUpperCase(),
     name: f.name,
@@ -176,6 +191,7 @@ export function facultyRecordsFrom(inst: Institution): FacultyRecord[] {
     homeBuildingId: f.homeBuildingId,
     onSabbatical: f.onSabbatical,
     needsAccessibleRoom: f.needsAccessibleRoom,
+    active: true,
   }))
 }
 
@@ -220,7 +236,7 @@ export function roomRecordsFrom(inst: Institution): RoomRecord[] {
 let seq = 0
 const uid = (prefix: string) => `${prefix}-u${Date.now().toString(36)}${seq++}`
 
-export const blankFaculty = (dept: string): FacultyRecord => ({
+export const blankStaff = (dept: string): StaffRecord => ({
   id: uid('f'),
   staffCode: '',
   name: '',
@@ -244,6 +260,7 @@ export const blankFaculty = (dept: string): FacultyRecord => ({
   homeBuildingId: undefined,
   onSabbatical: false,
   needsAccessibleRoom: false,
+  active: true,
 })
 
 export const blankCourse = (dept: string, programId: string, year: number): CourseRecord => ({
@@ -353,12 +370,6 @@ export const ROOM_SPECIALISATIONS: RoomSpecialisation[] = [
     hint: 'Small group teaching, furniture rearranges',
   },
   {
-    id: 'auditorium', label: 'Auditorium', kind: 'Auditorium',
-    features: ['auditorium', 'tiered', 'projectorHiRes', 'lectureCapture', 'wheelchairAccess'],
-    capacity: 300, turnoverMinutes: 15,
-    hint: 'Assemblies, guest lectures, convocation',
-  },
-  {
     id: 'computerLab', label: 'Computer lab', kind: 'Computer Lab',
     features: ['computers', 'wiredNetwork', 'projectorHiRes'], capacity: 60, turnoverMinutes: 15,
     hint: 'A terminal at every seat',
@@ -427,11 +438,6 @@ export const ROOM_SPECIALISATIONS: RoomSpecialisation[] = [
     id: 'surveyLab', label: 'Surveying / geotech lab', kind: 'Lab',
     features: ['wetLab'], capacity: 40, turnoverMinutes: 15,
     hint: 'Heavy instruments, ground access',
-  },
-  {
-    id: 'gym', label: 'Gymnasium / sports hall', kind: 'Gymnasium',
-    features: [], capacity: 120, turnoverMinutes: 15,
-    hint: 'Physical education and events',
   },
   {
     id: 'quiet', label: 'Low-stimulus room', kind: 'Seminar',

@@ -2,8 +2,9 @@
  * Engine context — the lookups and helpers every rule shares.
  */
 
+import { sessionMinutes } from '../data/model'
 import type {
-  Building, Cohort, Course, Faculty, Institution, Room, Session, TimeGrid,
+  Building, Cohort, Course, Staff, Institution, Room, Session, ShiftWindow, TimeGrid,
 } from '../data/model'
 import type { ConstraintDef, ConstraintState, ParamValue } from '../data/constraints/types'
 import type { CustomConstraint } from '../data/constraints/custom'
@@ -13,7 +14,7 @@ import type { Occupancy } from './occupancy'
 export interface Candidate {
   course: Course
   cohort: Cohort
-  faculty: Faculty
+  staff: Staff
   /** null for sessions that need no room (online, independent study) */
   room: Room | null
   day: number
@@ -38,8 +39,10 @@ export interface EngineCtx {
   courseById: Map<string, Course>
   cohortById: Map<string, Cohort>
   roomById: Map<string, Room>
-  facultyById: Map<string, Faculty>
+  staffById: Map<string, Staff>
   buildingById: Map<string, Building>
+  /** shift windows by id, for the structural confinement gate */
+  shiftById: Map<string, ShiftWindow>
   /** enabled hard rules, in evaluation order (cheapest first) */
   hard: ActiveRule[]
   /** enabled soft rules */
@@ -90,8 +93,20 @@ export const bool = (p: Params, key: string, fallback = false): boolean => {
 export const slotStartMinutes = (grid: TimeGrid, slot: number) =>
   grid.starts[Math.min(slot, grid.starts.length - 1)] ?? 0
 
+/**
+ * When a session starting at `slot` and running `length` slots actually ends.
+ *
+ * Sums the real durations rather than multiplying by the nominal slot length,
+ * because the last period of the day can be shorter. Every end-of-session time
+ * in the engine goes through here so a short final slot cannot be reported as
+ * running past the close of the day.
+ */
 export const slotEndMinutes = (grid: TimeGrid, slot: number, length = 1) =>
-  slotStartMinutes(grid, slot) + length * grid.slotMinutes
+  slotStartMinutes(grid, slot) + sessionMinutes(grid, slot, length)
+
+/** Real length of one slot, in minutes. */
+export const slotDuration = (grid: TimeGrid, slot: number) =>
+  grid.durations[slot] ?? grid.slotMinutes
 
 /** Convert "17:30" into the first slot index at or after that time. */
 export function slotAtOrAfter(grid: TimeGrid, time: string, fallback: number): number {
@@ -111,7 +126,7 @@ export function slotEndingBefore(grid: TimeGrid, time: string, fallback: number)
   const mins = h * 60 + (m || 0)
   let last = -1
   for (let i = 0; i < grid.slots; i++) {
-    if (grid.starts[i] + grid.slotMinutes <= mins) last = i
+    if (grid.starts[i] + (grid.durations[i] ?? grid.slotMinutes) <= mins) last = i
   }
   return last
 }
@@ -156,8 +171,9 @@ export function buildContext(
     courseById: new Map(inst.courses.map(c => [c.id, c])),
     cohortById: new Map(inst.cohorts.map(c => [c.id, c])),
     roomById: new Map(inst.rooms.map(r => [r.id, r])),
-    facultyById: new Map(inst.faculty.map(f => [f.id, f])),
+    staffById: new Map(inst.staff.map(f => [f.id, f])),
     buildingById: new Map(inst.buildings.map(b => [b.id, b])),
+    shiftById: new Map(inst.grid.shifts.map(s => [s.id, s])),
     hard, soft, locked,
     customHard: active.filter(c => c.hard),
     customSoft: active.filter(c => !c.hard),
