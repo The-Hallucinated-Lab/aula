@@ -4,7 +4,7 @@
   "private": true,
   "version": "1.0.0",
   "license": "UNLICENSED",
-  "description": "Aula — a constraint-driven university timetable planner for Windows",
+  "description": "Aula \u2014 a constraint-driven university timetable planner for Windows",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -87,5 +87,8 @@
         "to": "THIRD-PARTY-NOTICES.md"
       }
     ]
+  },
+  "optionalDependencies": {
+    "@sentry/electron": "7.17.0"
   }
 }

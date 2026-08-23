@@ -1,0 +1,143 @@
+name: CI
+
+# The same gate the pre-push hook runs, on a machine nobody can bypass.
+# A hook is a courtesy; this is the contract.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  # A second push to the same branch makes the first run's answer worthless.
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # The hook installer skips itself in CI; the hooks are for humans.
+  CI: 'true'
+
+jobs:
+  gate:
+    name: Verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      # `ci`, not `install`: the lockfile is the input, and a run that quietly
+      # resolves a different tree is not testing what will ship.
+      - name: Install
+        run: npm ci
+
+      - name: Format
+        run: npm run format:check
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm run test:coverage
+
+      # The number that actually counts. `verify` re-derives every hard
+      # scheduling invariant independently of the solver, so a solver bug
+      # cannot mark its own homework.
+      - name: Verify the engine
+        run: npm run verify
+
+      - name: Build (web)
+        run: npm run build:web
+
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage/
+          retention-days: 14
+
+  licences:
+    name: Licences
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      # Aula statically links what it ships, so a strong-copyleft runtime
+      # dependency would relicense the application itself. This fails the build.
+      - name: Audit licences
+        run: npm run audit:licenses
+
+      # Two audits, because they are two different risks.
+      #
+      # The shipped graph is what a timetable office installs and runs. Any
+      # advisory in it is a defect in the product, so the bar is `low` and the
+      # job fails.
+      - name: Audit the shipped dependency graph
+        run: npm audit --omit=dev --audit-level=low
+
+      # The build graph runs in this trusted job and never reaches a user or
+      # their data. Advisories in it are worth seeing and worth fixing on their
+      # own schedule; failing the pipeline on one would mean a release train
+      # blocked by a transitive dependency of a tool that only makes tags.
+      # At the time of writing all seven findings are inside the copy of `npm`
+      # that `semantic-release` bundles.
+      - name: Audit the build graph (informational)
+        continue-on-error: true
+        run: npm audit --audit-level=high
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: licence-report
+          path: |
+            reports/licenses.json
+            THIRD-PARTY-NOTICES.md
+          retention-days: 30
+
+  package:
+    name: Windows installer
+    # Only on main: electron-builder pulls ~200 MB of Electron and takes far
+    # longer than the gate, which is not a reasonable tax on every pull request.
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [gate, licences]
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+
+      - name: Package
+        run: npm run package
+        env:
+          # electron-builder would otherwise try to publish to a release.
+          GH_TOKEN: ''
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: aula-windows
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+          retention-days: 30

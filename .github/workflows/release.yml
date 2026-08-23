@@ -1,0 +1,49 @@
+name: Release
+
+# Version and changelog are derived from the commit subjects, which
+# .githooks/commit-msg has already refused to let through in the wrong shape.
+# Nobody edits a version number by hand.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  # Two releases racing would produce two tags for one commit range.
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: write # create the tag, the release and the changelog commit
+  issues: write # comment on issues the release closes
+  pull-requests: write
+
+jobs:
+  release:
+    name: semantic-release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # semantic-release reads the whole history to work out what changed
+          # since the last tag; a shallow clone makes it think everything is new.
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+
+      - run: npm ci
+
+      # Never release something that does not pass its own gate.
+      - name: Gate
+        run: npm run check
+
+      - name: Release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx semantic-release

@@ -22,6 +22,8 @@
     "dev": "npm run dev --workspace @aula/desktop",
     "dev:web": "npm run dev:web --workspace @aula/desktop",
     "diagnose": "npm run diagnose --workspace @aula/core",
+    "docker:build": "docker build -t aula:local .",
+    "docker:up": "docker compose up --build",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "i18n:report": "node tools/scripts/i18n-report.mjs",
@@ -29,6 +31,7 @@
     "lint:fix": "oxlint --fix",
     "package": "npm run package --workspace @aula/desktop",
     "prepare": "node tools/scripts/install-git-hooks.mjs",
+    "release:dry": "npx semantic-release --dry-run --no-ci",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "test:watch": "vitest",
@@ -36,11 +39,16 @@
     "verify": "npm run verify --workspace @aula/core"
   },
   "devDependencies": {
+    "@semantic-release/changelog": "7.0.0",
+    "@semantic-release/exec": "7.1.0",
+    "@semantic-release/git": "11.0.1",
+    "@vitest/coverage-v8": "4.1.11",
+    "conventional-changelog-conventionalcommits": "10.4.0",
     "oxlint": "1.79.0",
     "prettier": "3.9.6",
+    "semantic-release": "25.0.9",
     "typescript": "7.0.2",
-    "vitest": "4.1.11",
-    "@vitest/coverage-v8": "4.1.11"
+    "vitest": "4.1.11"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,

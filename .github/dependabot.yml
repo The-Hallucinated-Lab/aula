@@ -1,0 +1,42 @@
+version: 2
+
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      # The commit-msg hook and semantic-release both read these subjects, so
+      # Dependabot has to speak the same grammar as everyone else.
+      prefix: build
+      prefix-development: build
+      include: scope
+    groups:
+      # One pull request per family. Fifteen separate bumps for the same
+      # release train is fifteen CI runs and fifteen reviews of nothing.
+      react:
+        patterns: ['react', 'react-dom', '@types/react', '@types/react-dom', 'react-router-dom']
+      electron:
+        patterns: ['electron', 'electron-builder', 'vite-plugin-electron']
+      build-tooling:
+        patterns: ['vite', '@vitejs/*', 'esbuild', 'typescript', 'oxlint', 'prettier']
+      testing:
+        patterns: ['vitest', '@vitest/*', 'happy-dom', '@testing-library/*']
+      i18n:
+        patterns: ['i18next', 'react-i18next']
+      release:
+        patterns: ['semantic-release', '@semantic-release/*', 'conventional-changelog-*']
+    ignore:
+      # Electron majors carry a Chromium major with them. They are worth taking,
+      # deliberately, not on a Monday morning by robot.
+      - dependency-name: electron
+        update-types: ['version-update:semver-major']
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: ci

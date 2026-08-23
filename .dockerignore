@@ -1,0 +1,33 @@
+# Everything the build does not need, and several things it must not have.
+
+node_modules
+**/node_modules
+dist
+**/dist
+dist-electron
+**/dist-electron
+release
+**/release
+coverage
+reports
+
+.git
+.github
+.githooks
+.claude
+.vscode
+.idea
+
+# Secrets must never enter the build context, let alone a layer.
+.env
+.env.*
+!.env.example
+
+*.log
+*.docx
+docs
+tools/orchestrator
+
+Dockerfile
+.dockerignore
+docker-compose.yml
