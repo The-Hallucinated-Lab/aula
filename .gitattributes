@@ -1,0 +1,26 @@
+# Normalise to LF in the repository. The working tree gets whatever the
+# platform wants, with two exceptions below that must not be translated.
+* text=auto eol=lf
+
+# Git hooks are executed by sh. A CRLF shebang line makes the interpreter
+# lookup fail with "bad interpreter: /bin/sh^M", and the hook silently stops
+# gating anything.
+.githooks/* text eol=lf
+*.sh text eol=lf
+
+# Windows-native scripts need CRLF.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary: never diff, never translate.
+*.png binary
+*.jpg binary
+*.ico binary
+*.docx binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+
+# Generated: keep out of diffs and language statistics.
+package-lock.json -diff linguist-generated=true

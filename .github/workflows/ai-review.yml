@@ -1,0 +1,99 @@
+name: AI review
+
+# A reviewer that never runs out of patience for the boring half of a review:
+# a rule promoted to `error` and then bypassed, a number quoted in a comment
+# that no longer matches the code, a constraint marked enforced with no
+# implementation behind it.
+#
+# It comments. It does not approve, and it does not block a merge — a review
+# that cannot be argued with is not a review. `CI` is the gate.
+#
+# SETUP
+#   Repository secret `ANTHROPIC_API_KEY`. Without it this workflow is skipped,
+#   which is why the guard below exists rather than letting it fail on every
+#   pull request from a fork.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+concurrency:
+  group: ai-review-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+  id-token: write
+
+jobs:
+  review:
+    name: Claude
+    # Skip on a fork, where secrets are not available, and skip unless a
+    # comment actually addresses the reviewer.
+    if: |
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      (github.event_name == 'pull_request' ||
+       (github.event_name == 'issue_comment' &&
+        github.event.issue.pull_request &&
+        contains(github.event.comment.body, '@claude')))
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Guard on the key
+        id: guard
+        env:
+          KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$KEY" ]; then
+            echo "ANTHROPIC_API_KEY is not set — skipping the AI review."
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Review
+        if: steps.guard.outputs.enabled == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          # The repository's own contract is the review standard. Pointing at
+          # it rather than restating it means the two cannot drift.
+          prompt: |
+            Review this pull request against CLAUDE.md, which is the operating
+            contract for this repository. Read it first.
+
+            Weight these highest, in order:
+
+            1. A claim that is not true of the code. CLAUDE.md §1.1 forbids
+               quoting a number nobody measured. Check counts and figures in
+               comments and docs against what the code actually does.
+            2. A constraint shown as engine-enforced without `isImplemented`
+               being true for it (§1.2). This makes the application lie to a
+               timetable office about what it checked.
+            3. A boundary crossed: anything in `packages/core` reaching a host
+               API, or `src/data` importing `src/engine`. The tsconfig should
+               catch this — if it did not, say why.
+            4. A silent failure. Empty `catch`, a fallback that hides a broken
+               bridge or an unreachable model (§1.4).
+            5. A generator that can emit a structurally impossible demand
+               (§1.3) — scarcity has to be real or the explanation is a lie.
+            6. A lint rule suppressed inline without a comment saying why, or a
+               rule moved out of `error` in .oxlintrc.json.
+
+            Then ordinary correctness: off-by-one, unhandled undefined,
+            mutation of shared state, a React key that is an array index.
+
+            Be specific and quote the line. If the change is sound, say so in
+            one sentence rather than inventing something to say. Do not
+            restate the diff.
+          claude_args: |
+            --max-turns 30
+            --allowedTools "Read,Grep,Glob,Bash(npm run typecheck),Bash(npm run lint),Bash(npm run test),Bash(git diff:*),Bash(git log:*)"

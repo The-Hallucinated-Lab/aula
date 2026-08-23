@@ -1,0 +1,78 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "oxc", "unicorn", "import", "jsx-a11y", "promise"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn",
+    "pedantic": "off"
+  },
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ],
+    "react/no-array-index-key": "error",
+    "react/react-in-jsx-scope": "off",
+    "typescript/no-explicit-any": "error",
+    "eqeqeq": ["error", "smart"],
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-func": "error",
+    "no-console": [
+      "warn",
+      {
+        "allow": ["warn", "error"]
+      }
+    ],
+    "unicorn/no-empty-file": "error",
+    "unicorn/require-post-message-target-origin": "error",
+    "unicorn/no-array-sort": "error",
+    "eslint/no-shadow": "error",
+    "promise/always-return": "error",
+    "react/set-state-in-effect": "error",
+    "oxc/no-map-spread": "off",
+    "unicorn/prefer-add-event-listener": "error",
+    "unicorn/no-useless-fallback-in-spread": "error",
+    "unicorn/consistent-function-scoping": "error",
+    "unicorn/prefer-array-find": "error",
+    "react/capitalized-calls": "off",
+    "import/no-unassigned-import": "warn",
+    "eslint/no-underscore-dangle": [
+      "error",
+      {
+        "allow": ["__dirname", "__filename"]
+      }
+    ],
+    "jsx-a11y/alt-text": "error",
+    "jsx-a11y/aria-props": "error",
+    "jsx-a11y/aria-role": "error",
+    "jsx-a11y/role-has-required-aria-props": "error",
+    "jsx-a11y/anchor-is-valid": "error",
+    "jsx-a11y/tabindex-no-positive": "error",
+    "jsx-a11y/no-autofocus": "warn",
+    "jsx-a11y/label-has-associated-control": "off",
+    "jsx-a11y/click-events-have-key-events": "off",
+    "jsx-a11y/no-noninteractive-element-to-interactive-role": "off",
+    "jsx-a11y/prefer-tag-over-role": "off"
+  },
+  "overrides": [
+    {
+      "files": ["packages/core/scripts/**", "tools/**", "apps/desktop/electron/**"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["apps/desktop/src/adapters/solver/**"],
+      "rules": {
+        "unicorn/require-post-message-target-origin": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["dist/**", "dist-electron/**", "release/**", "node_modules/**", "coverage/**"]
+}

@@ -1,0 +1,11 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    /* The domain core is host-agnostic: no DOM, no Node, no bundler globals.
+       An empty `types` array is what makes that a compiler error rather than
+       a code-review convention. */
+    "lib": ["ES2023"],
+    "types": []
+  },
+  "include": ["src", "tests"]
+}

@@ -1,0 +1,55 @@
+# Aula — browser build, for a demonstration or a review environment.
+#
+#   docker compose up --build
+#   open http://localhost:8080
+#
+# This is not how an institution runs Aula. The product is a Windows desktop
+# application; this is the renderer without its shell, so there is no local
+# assistant and no native file dialogs.
+
+services:
+  aula:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: runtime
+    image: aula:local
+    ports:
+      - '8080:8080'
+
+    # Self-healing, such as it means for a static file server: restart unless
+    # a person stopped it deliberately, and only count as healthy once the
+    # health endpoint answers.
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '--spider', 'http://127.0.0.1:8080/healthz']
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+    # The container serves fixed files and needs nothing else. Everything below
+    # is the difference between a compromised nginx being an inconvenience and
+    # being a foothold.
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+      - /var/cache/nginx:size=16m
+      - /var/run:size=1m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    user: '101:101'
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 128M
+
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: '3'

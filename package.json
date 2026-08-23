@@ -1,0 +1,58 @@
+{
+  "name": "aula-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Aula \u2014 a constraint-driven university timetable planner. Offline-first Electron desktop application.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.9.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*"
+  ],
+  "scripts": {
+    "audit:licenses": "node tools/scripts/audit-licenses.mjs",
+    "build": "npm run build --workspace @aula/desktop",
+    "build:web": "npm run build:web --workspace @aula/desktop",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run verify",
+    "dev": "npm run dev --workspace @aula/desktop",
+    "dev:web": "npm run dev:web --workspace @aula/desktop",
+    "diagnose": "npm run diagnose --workspace @aula/core",
+    "docker:build": "docker build -t aula:local .",
+    "docker:up": "docker compose up --build",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "i18n:report": "node tools/scripts/i18n-report.mjs",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "new": "node tools/cli/src/index.ts new",
+    "package": "npm run package --workspace @aula/desktop",
+    "prepare": "node tools/scripts/install-git-hooks.mjs",
+    "release:dry": "npx semantic-release --dry-run --no-ci",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "test:watch": "vitest",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "verify": "npm run verify --workspace @aula/core"
+  },
+  "devDependencies": {
+    "@semantic-release/changelog": "7.0.0",
+    "@semantic-release/exec": "7.1.0",
+    "@semantic-release/git": "11.0.1",
+    "@vitest/coverage-v8": "4.1.11",
+    "conventional-changelog-conventionalcommits": "10.4.0",
+    "oxlint": "1.79.0",
+    "prettier": "3.9.6",
+    "semantic-release": "25.0.9",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "electron-winstaller@5.4.0": true
+  }
+}

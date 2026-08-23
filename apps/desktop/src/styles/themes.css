@@ -1,0 +1,278 @@
+/* ============================================================
+   Themes.
+
+   Every colour in the application is a custom property, and every
+   one of them is defined here. A rule elsewhere that reaches for a
+   literal colour is a bug: it will look right in one theme and
+   wrong in another, and nothing will catch it.
+
+   Three states, in the order they win:
+
+     1. :root                        the light palette, always
+        defined, so no token can ever resolve to nothing.
+     2. prefers-color-scheme: dark   the operating system's choice,
+        applied only where the user has not overridden it.
+     3. [data-theme="…"]             an explicit choice, which beats
+        the system in both directions.
+
+   The guard on the media query — :root:not([data-theme]) — is what
+   makes "light" a real choice rather than a no-op on a machine set
+   to dark.
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* planes (light, warm, calm) */
+  --page: #f2f1ec;
+  --surface: #fcfcfa;
+  --surface-2: #f6f5f0;
+  --surface-3: #efeee8;
+
+  /* ink
+     --ink-3 is the muted tier. It was #949c96, which is 2.7:1 against
+     --surface — the axe baseline's only contrast failure, on 11px text where
+     it matters most. #656d69 clears 4.5:1 against all three planes. */
+  --ink: #1d2a24;
+  --ink-2: #5c6763;
+  --ink-3: #656d69;
+  --line: #e5e3da;
+  --line-soft: #edebe3;
+
+  /* brand */
+  --accent: #3e6b5e;
+  --accent-deep: #2f5348;
+  --accent-soft: #e2ece6;
+  --accent-soft-hover: #d5e3da;
+  --accent-wash: #eef4f0;
+  --accent-ink: #fdfdfb;
+
+  /* status */
+  --ok: #2e7d5b;
+  --ok-soft: #e1efe7;
+  --danger: #c05f52;
+  --danger-soft: #f7e6e2;
+  --danger-ink: #96453a;
+  --warn: #b17d0e;
+  --warn-soft: #f6eeda;
+
+  /* text on a saturated status fill */
+  --on-status: #ffffff;
+  /* the Windows convention for a close button's hover state */
+  --close-hover: #c42b1c;
+  --toast-danger: #7e3a30;
+
+  /* categorical chart palette, contrast-checked against --surface */
+  --series-1: #3f7dc0;
+  --series-2: #279e6e;
+  --series-3: #b17d0e;
+  --series-4: #7a6cc7;
+  --series-5: #c05f52;
+
+  /* the heatmap's ink as raw channels, so its density scale can
+     invert with the theme instead of staying a light-world green */
+  --heat: 62, 107, 94;
+
+  /* --surface as raw channels, for the translucent bars that sit over
+     scrolling content and need an alpha the token form cannot carry */
+  --surface-rgb: 252, 252, 250;
+
+  --shadow-1: 0 1px 2px rgba(29, 42, 36, 0.04), 0 10px 30px rgba(29, 42, 36, 0.06);
+  --shadow-2: 0 2px 6px rgba(29, 42, 36, 0.06), 0 18px 50px rgba(29, 42, 36, 0.12);
+  --shadow-lift: 0 4px 10px rgba(29, 42, 36, 0.1), 0 24px 60px rgba(29, 42, 36, 0.16);
+}
+
+/* ------------------------------------------------------------
+   Dark.
+
+   Not the light palette inverted. Inverting a warm off-white ground
+   gives a cold near-black that reads as a different product, so the
+   planes here keep the same slight green cast. The accent is
+   lifted rather than darkened: a mid-green that clears 4.5:1 on
+   paper-white falls under it against a dark ground.
+
+   Status fills carry dark text for the same reason — white on the
+   lightened danger red misses 4.5:1, dark ink on it clears 7:1.
+
+   A shadow is a light-world idea. Here it reads as a smear, so
+   depth comes from a lifted plane and a brighter hairline.
+   ------------------------------------------------------------ */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+
+    --page: #121615;
+    --surface: #1a201e;
+    --surface-2: #212927;
+    --surface-3: #29322f;
+
+    --ink: #e8eeea;
+    --ink-2: #a9b5b0;
+    --ink-3: #95a09a;
+    --line: #303a37;
+    --line-soft: #262f2c;
+
+    --accent: #6fb39d;
+    --accent-deep: #8fc9b5;
+    --accent-soft: #24352f;
+    --accent-soft-hover: #2c403a;
+    --accent-wash: #1c2723;
+    --accent-ink: #0f1413;
+
+    --ok: #58b98c;
+    --ok-soft: #1c2f26;
+    --danger: #e08d80;
+    --danger-soft: #33211e;
+    --danger-ink: #f0b4aa;
+    --warn: #d8a53c;
+    --warn-soft: #2e2617;
+
+    --on-status: #0f1413;
+    --close-hover: #d8442f;
+    --toast-danger: #5c2a22;
+
+    --series-1: #6fa8e0;
+    --series-2: #52c295;
+    --series-3: #d8a53c;
+    --series-4: #a396e4;
+    --series-5: #e08d80;
+
+    --heat: 111, 179, 157;
+    --surface-rgb: 26, 32, 30;
+
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.25);
+    --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.35), 0 18px 50px rgba(0, 0, 0, 0.4);
+    --shadow-lift: 0 4px 10px rgba(0, 0, 0, 0.4), 0 24px 60px rgba(0, 0, 0, 0.5);
+  }
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  --page: #121615;
+  --surface: #1a201e;
+  --surface-2: #212927;
+  --surface-3: #29322f;
+
+  --ink: #e8eeea;
+  --ink-2: #a9b5b0;
+  --ink-3: #95a09a;
+  --line: #303a37;
+  --line-soft: #262f2c;
+
+  --accent: #6fb39d;
+  --accent-deep: #8fc9b5;
+  --accent-soft: #24352f;
+  --accent-soft-hover: #2c403a;
+  --accent-wash: #1c2723;
+  --accent-ink: #0f1413;
+
+  --ok: #58b98c;
+  --ok-soft: #1c2f26;
+  --danger: #e08d80;
+  --danger-soft: #33211e;
+  --danger-ink: #f0b4aa;
+  --warn: #d8a53c;
+  --warn-soft: #2e2617;
+
+  --on-status: #0f1413;
+  --close-hover: #d8442f;
+  --toast-danger: #5c2a22;
+
+  --series-1: #6fa8e0;
+  --series-2: #52c295;
+  --series-3: #d8a53c;
+  --series-4: #a396e4;
+  --series-5: #e08d80;
+
+  --heat: 111, 179, 157;
+  --surface-rgb: 26, 32, 30;
+
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.3), 0 10px 30px rgba(0, 0, 0, 0.25);
+  --shadow-2: 0 2px 6px rgba(0, 0, 0, 0.35), 0 18px 50px rgba(0, 0, 0, 0.4);
+  --shadow-lift: 0 4px 10px rgba(0, 0, 0, 0.4), 0 24px 60px rgba(0, 0, 0, 0.5);
+}
+
+/* ------------------------------------------------------------
+   High contrast.
+
+   A third theme rather than a variant of dark, because the two
+   answer different problems: dark is a preference, high contrast
+   is an access need. Every foreground here clears 7:1 against its
+   plane, and shadows are removed entirely — a soft edge is exactly
+   what this theme's users cannot see.
+   ------------------------------------------------------------ */
+:root[data-theme='contrast'] {
+  color-scheme: dark;
+
+  --page: #000000;
+  --surface: #0a0d0c;
+  --surface-2: #141917;
+  --surface-3: #1d2422;
+
+  --ink: #ffffff;
+  --ink-2: #dfe6e3;
+  --ink-3: #b7c0bc;
+  --line: #6d7a76;
+  --line-soft: #4d5754;
+
+  --accent: #7ee0c0;
+  --accent-deep: #a5f0da;
+  --accent-soft: #14261f;
+  --accent-soft-hover: #1d332b;
+  --accent-wash: #0d1a15;
+  --accent-ink: #000000;
+
+  --ok: #6cf0a8;
+  --ok-soft: #0d2418;
+  --danger: #ff9d8e;
+  --danger-soft: #2b1512;
+  --danger-ink: #ffc4ba;
+  --warn: #ffc94d;
+  --warn-soft: #2a2110;
+
+  --on-status: #000000;
+  --close-hover: #ff5442;
+  --toast-danger: #5c1c12;
+
+  --series-1: #8dc0ff;
+  --series-2: #6cf0a8;
+  --series-3: #ffc94d;
+  --series-4: #c2b4ff;
+  --series-5: #ff9d8e;
+
+  --heat: 126, 224, 192;
+  --surface-rgb: 10, 13, 12;
+
+  --shadow-1: none;
+  --shadow-2: none;
+  --shadow-lift: none;
+}
+
+/* ------------------------------------------------------------
+   Operating-system overrides.
+   ------------------------------------------------------------ */
+
+@media (forced-colors: active) {
+  /* Windows high-contrast replaces colour outright. What it cannot restore is
+     an edge that was only ever implied by a difference in background. */
+  .card,
+  .chip,
+  .btn,
+  .callout {
+    border: 1px solid currentColor;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  /* Page transitions and the heatmap are decoration, and decoration is exactly
+     what triggers vestibular discomfort. Switched off, not shortened. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

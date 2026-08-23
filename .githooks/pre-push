@@ -1,0 +1,15 @@
+#!/bin/sh
+# Full gate. `verify` re-derives the hard scheduling invariants independently of
+# the solver, so a solver regression cannot mark its own homework.
+set -e
+
+echo "[pre-push] typecheck"
+npm run typecheck --silent
+
+echo "[pre-push] test"
+npm run test --silent
+
+echo "[pre-push] verify"
+npm run verify --silent
+
+echo "[pre-push] ok"

@@ -1,3 +1,48 @@
-.orchestrator/logs/
-.orchestrator/tmp/
-desktop/release/
+# ---- dependencies ----
+node_modules/
+.npm/
+
+# ---- build output ----
+dist/
+dist-ssr/
+dist-electron/
+release/
+*.tsbuildinfo
+coverage/
+.vite/
+
+# ---- local environment ----
+.env
+.env.*
+!.env.example
+
+# ---- logs ----
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# ---- local model orchestration scratch ----
+tools/orchestrator/logs/
+tools/orchestrator/tmp/
+
+# ---- generated reports ----
+reports/*.json
+!reports/.gitkeep
+
+# ---- editor / OS ----
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json
+.idea/
+.DS_Store
+Thumbs.db
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+*.local

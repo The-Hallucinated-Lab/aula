@@ -1,0 +1,63 @@
+# Aula — browser build under systemd, for a Linux host running the container
+# without an orchestrator.
+#
+#   sudo cp deploy/systemd/aula-web.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now aula-web
+#
+# Again: this serves the renderer. The product an institution installs is the
+# Windows desktop application, which needs no service at all — it is a program
+# a person opens.
+
+[Unit]
+Description=Aula timetable planner (browser build)
+Documentation=https://github.com/The-Hallucinated-Lab/aula
+After=network-online.target podman.socket
+Wants=network-online.target
+
+[Service]
+Type=exec
+
+# Podman rather than Docker: it runs rootless, which means the hardening below
+# is real rather than a container that could ask the daemon for more.
+ExecStartPre=-/usr/bin/podman rm -f aula-web
+ExecStart=/usr/bin/podman run \
+    --rm \
+    --name aula-web \
+    --publish 127.0.0.1:8080:8080 \
+    --read-only \
+    --cap-drop=ALL \
+    --security-opt no-new-privileges \
+    --tmpfs /tmp:size=16m \
+    --tmpfs /var/cache/nginx:size=16m \
+    --tmpfs /var/run:size=1m \
+    --memory 128m \
+    --cpus 0.5 \
+    ghcr.io/the-hallucinated-lab/aula:latest
+ExecStop=/usr/bin/podman stop --time 10 aula-web
+
+# Self-healing: restart on any exit, but rate-limited. Without the burst limit
+# a container that cannot start at all spins forever and fills the journal.
+Restart=always
+RestartSec=5s
+StartLimitBurst=5
+StartLimitIntervalSec=120
+
+# Nothing here needs the host.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=false
+RestrictSUIDSGID=true
+LockPersonality=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=aula-web
+
+[Install]
+WantedBy=multi-user.target
