@@ -1,0 +1,74 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["react", "typescript", "oxc", "unicorn", "import", "jsx-a11y", "promise"],
+  "categories": {
+    "correctness": "error",
+    "suspicious": "error",
+    "perf": "warn",
+    "pedantic": "off"
+  },
+  "rules": {
+    "react/rules-of-hooks": "error",
+    "react/exhaustive-deps": "warn",
+    "react/only-export-components": [
+      "warn",
+      {
+        "allowConstantExport": true
+      }
+    ],
+    "react/no-array-index-key": "warn",
+    "react/react-in-jsx-scope": "off",
+    "typescript/no-explicit-any": "error",
+    "eqeqeq": ["error", "smart"],
+    "no-eval": "error",
+    "no-implied-eval": "error",
+    "no-new-func": "error",
+    "no-console": [
+      "warn",
+      {
+        "allow": ["warn", "error"]
+      }
+    ],
+    "unicorn/no-empty-file": "error",
+    "unicorn/require-post-message-target-origin": "error",
+    "unicorn/no-array-sort": "warn",
+    "eslint/no-shadow": "warn",
+    "promise/always-return": "warn",
+    "react/set-state-in-effect": "warn",
+    "oxc/no-map-spread": "warn",
+    "unicorn/prefer-add-event-listener": "warn",
+    "unicorn/no-useless-fallback-in-spread": "warn",
+    "unicorn/consistent-function-scoping": "warn",
+    "unicorn/prefer-array-find": "warn",
+    "react/capitalized-calls": "warn",
+    "import/no-unassigned-import": "warn",
+    "jsx-a11y/label-has-associated-control": "warn",
+    "jsx-a11y/control-has-associated-label": "warn",
+    "jsx-a11y/click-events-have-key-events": "warn",
+    "jsx-a11y/no-static-element-interactions": "warn",
+    "jsx-a11y/no-noninteractive-element-interactions": "warn",
+    "jsx-a11y/no-noninteractive-element-to-interactive-role": "warn",
+    "jsx-a11y/prefer-tag-over-role": "warn",
+    "eslint/no-underscore-dangle": [
+      "error",
+      {
+        "allow": ["__dirname", "__filename"]
+      }
+    ]
+  },
+  "overrides": [
+    {
+      "files": ["packages/core/scripts/**", "tools/**", "apps/desktop/electron/**"],
+      "rules": {
+        "no-console": "off"
+      }
+    },
+    {
+      "files": ["apps/desktop/src/adapters/solver/**"],
+      "rules": {
+        "unicorn/require-post-message-target-origin": "off"
+      }
+    }
+  ],
+  "ignorePatterns": ["dist/**", "dist-electron/**", "release/**", "node_modules/**", "coverage/**"]
+}

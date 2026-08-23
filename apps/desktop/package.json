@@ -1,0 +1,79 @@
+{
+  "name": "@aula/desktop",
+  "productName": "Aula",
+  "private": true,
+  "version": "1.0.0",
+  "license": "UNLICENSED",
+  "description": "Aula — a constraint-driven university timetable planner for Windows",
+  "type": "module",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "dev:web": "vite --mode web",
+    "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.node.json",
+    "build": "npm run typecheck && vite build",
+    "build:web": "npm run typecheck && vite build --mode web",
+    "preview": "vite preview",
+    "package": "npm run build && electron-builder --win --publish never",
+    "package:dir": "npm run build && electron-builder --win --dir --publish never"
+  },
+  "dependencies": {
+    "@aula/core": "*",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "react-router-dom": "7.18.2",
+    "zod": "4.4.3",
+    "zustand": "5.0.15"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "@types/react": "19.2.18",
+    "@types/react-dom": "19.2.4",
+    "@vitejs/plugin-react": "6.1.0",
+    "electron": "43.4.1",
+    "electron-builder": "26.15.3",
+    "vite": "8.2.2",
+    "vite-plugin-electron": "1.1.1"
+  },
+  "build": {
+    "appId": "in.aula.timetable",
+    "productName": "Aula",
+    "copyright": "Aula Timetable Studio",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Aula",
+      "artifactName": "Aula-Setup-${version}-${arch}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Aula-Portable-${version}-${arch}.${ext}"
+    }
+  }
+}

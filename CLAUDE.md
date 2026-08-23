@@ -5,15 +5,15 @@ timetable planner: Electron shell, React renderer, bespoke constraint engine in
 a Web Worker. No server, no database, no network call except `localhost:11434`
 for the optional local assistant.
 
-This file is the operating contract for any agent working here. `.orchestrator/*.sh`
-cites it by section number — keep the numbering stable.
+This file is the operating contract for any agent working here.
+`tools/orchestrator/*.sh` cites it by section number — keep the numbering stable.
 
 ---
 
 ## 1. Ground rules
 
 1. **Never claim a number you have not measured.** Run `npm run verify` and quote
-   its output. Prose files (`explanation.md`, `CONTEXT.md`) go stale; the code and
+   its output. Prose files (`docs/explanation.md`, `docs/CONTEXT.md`) go stale; the code and
    the harness do not.
 2. **Never mark a constraint as enforced unless `isImplemented(rule)` is true.**
    Advisory rows are labelled advisory in the UI, in exports and in every document.
@@ -27,31 +27,78 @@ cites it by section number — keep the numbering stable.
 
 ## 2. Repository layout
 
+An npm-workspaces monorepo. The split is not filing — it is how the
+architectural boundaries below are made checkable by a compiler instead of by
+code review.
+
 ```
-CONTEXT.md      immutable execution timeline + bug log; append, never rewrite
-decisions.md    numbered architecture decisions (D-01…)
-explanation.md  long-form prose explainer (may lag the code — verify before quoting)
-docs/           review notes
-.orchestrator/  local-model delegation harness (§3) and session log
-desktop/        the application (see explanation.md §3 for the src tree)
+packages/core/          @aula/core — the domain. Institution model, 500-row
+                        constraint catalogue, rule registry, solver.
+  src/data/             pure data and types
+  src/engine/           rules and the solver
+  scripts/harness.ts    headless verification (`npm run verify`)
+  tsconfig.json         lib ES2023, types [] — no DOM, no Node, enforced
+
+apps/desktop/           @aula/desktop — the Electron application
+  electron/             main process, preload, validated env
+  src/adapters/         host-specific edges (the solver Web Worker)
+  src/pages/            screens
+  src/components/       shared UI
+  src/content/          UI microcopy
+
+tools/orchestrator/     local-model delegation harness (§3) and session log
+tools/scripts/          workspace scripts (git hooks, licence audit)
+docs/                   CONTEXT.md, decisions.md, explanation.md, reviews
+.githooks/              native Git hooks (`core.hooksPath`)
 ```
 
-Two boundaries are load-bearing and must not be crossed:
+Three boundaries are load-bearing and must not be crossed:
 
-- `src/data/**` is pure data and types. It never imports `src/engine` or React.
-- `src/engine/**` may import `src/data`, never React or the DOM. This is what lets
-  `scripts/harness.ts` bundle the whole engine with esbuild and exercise it in Node.
+- `packages/core/src/data/**` is pure data and types. It never imports
+  `src/engine` or React.
+- `packages/core/src/engine/**` may import `src/data`, never React or the DOM.
+- **`@aula/core` as a whole reaches no host API** — no `fetch`, no
+  `document`, no `node:*`. Its tsconfig sets `"types": []` and `lib` to
+  `ES2023` alone, so a violation is a compile error rather than a convention.
+  This is what lets the same code run in the renderer, in a Web Worker, and
+  headless under Node in the harness.
+
+Anything that must touch a host goes in `apps/desktop/src/adapters/` or the
+main process. The assistant is the worked example: the briefing and the
+grounding prompt are domain knowledge and live in
+`packages/core/src/engine/assistant.ts`; reaching the model server is a
+main-process relay, because the packaged renderer's origin is `file://`.
+
+### 2.1 Commands
+
+Every command runs from the repository root.
+
+| Command                  | What it does                                      |
+| ------------------------ | ------------------------------------------------- |
+| `npm run dev`            | Vite + Electron against the dev server            |
+| `npm run dev:web`        | renderer only, in a browser                       |
+| `npm run typecheck`      | both workspaces, both TS projects each            |
+| `npm run lint`           | oxlint over the whole tree                        |
+| `npm run format`         | Prettier, write                                   |
+| `npm run test`           | Vitest (`core` in Node, `desktop` in happy-dom)   |
+| `npm run verify`         | the headless harness — the number that counts     |
+| `npm run audit:licenses` | fails on strong copyleft in the shipped graph     |
+| `npm run check`          | all of the above, in the order the hooks run them |
+| `npm run package`        | electron-builder, NSIS + portable                 |
+
+Commits must be Conventional Commits — `.githooks/commit-msg` rejects anything
+else, and the release pipeline derives the version and changelog from them.
 
 ## 3. Local model orchestration
 
 Delegation runs against Ollama on this machine. Start it with
 `ollama serve` if `curl localhost:11434/api/tags` is silent.
 
-| Script | Purpose |
-|---|---|
-| `.orchestrator/warm.sh` | keep the reader resident (`keep_alive: 8h`) |
-| `.orchestrator/ask.sh <file\|-> "<question>" [lines]` | extraction from a file; answers `NOT_FOUND` rather than guessing |
-| `.orchestrator/delegate.sh <model> <prompt-file> <out-file> [think]` | one generation packet |
+| Script                                                                    | Purpose                                                          |
+| ------------------------------------------------------------------------- | ---------------------------------------------------------------- |
+| `tools/orchestrator/warm.sh`                                              | keep the reader resident (`keep_alive: 8h`)                      |
+| `tools/orchestrator/ask.sh <file\|-> "<question>" [lines]`                | extraction from a file; answers `NOT_FOUND` rather than guessing |
+| `tools/orchestrator/delegate.sh <model> <prompt-file> <out-file> [think]` | one generation packet                                            |
 
 ### 3.1 Thinking mode
 
@@ -67,11 +114,11 @@ corrupts the output ("their\e[5D\e[Ktheir").
 
 ### 3.3 Model routing
 
-| Task | Model |
-|---|---|
-| Extraction / file Q&A | `orch-reader` (gemma4:e4b, 64K ctx build) |
-| Prose, structured markdown | `gemma4:e4b` |
-| Anything structural | **not** `llama3` — it drops fenced blocks and ignores bullet-format instructions across correction passes |
+| Task                       | Model                                                                                                     |
+| -------------------------- | --------------------------------------------------------------------------------------------------------- |
+| Extraction / file Q&A      | `orch-reader` (gemma4:e4b, 64K ctx build)                                                                 |
+| Prose, structured markdown | `gemma4:e4b`                                                                                              |
+| Anything structural        | **not** `llama3` — it drops fenced blocks and ignores bullet-format instructions across correction passes |
 
 ### 3.4 VRAM ceiling
 
@@ -92,7 +139,7 @@ Numbered rules:
 2. State the output format exactly, and the length budget.
 3. Forbid invention explicitly: "if it is not in the packet, omit it".
 4. One unit of work per packet.
-5. Log every unit in `.orchestrator/session.md` with route, model, attempts, status.
+5. Log every unit in `tools/orchestrator/session.md` with route, model, attempts, status.
 6. Two failed attempts on the same packet means the packet is wrong, not the model.
 7. **If the packet would be longer than the artefact it produces, RETAIN it.**
    Delegating the 500-constraint catalogue would have meant writing the catalogue
@@ -139,16 +186,18 @@ but referenced by none.
 
 ### 11.2 Known gaps
 
-Recorded in `CONTEXT.md §4` (GAP-01…GAP-07). The load-bearing ones: the solver is
+Recorded in `docs/CONTEXT.md §4` (GAP-01…GAP-07). The load-bearing ones: the solver is
 greedy and does not prove optimality; 199 constraints cannot be decided from a
 weekly-teaching data model; there is no exam-scheduling entity; the assistant
 needs Ollama installed locally. GAP-04 (no CSV import) was closed on 2026-08-23.
 
-Two things are **not** covered by `npm run verify` and need driving in the app:
-anything in `store.ts` or a page, since the harness bundles only `data` and
-`engine`; and `scripts/` itself is outside both tsconfig projects, so the harness
-is never type-checked — a duplicate `const` there surfaced only as an esbuild
-failure.
+`npm run verify` bundles `@aula/core` only, so anything in `store.ts` or a page
+is outside it and still needs driving in the app (or covering with a Vitest
+`desktop` test).
+
+The harness is now type-checked: it moved to `packages/core/scripts/` under
+`tsconfig.scripts.json`, closing the gap where a duplicate `const` there could
+only surface as an esbuild failure.
 
 ### 11.3 The reader is a map, not a verdict
 

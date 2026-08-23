@@ -1,0 +1,15 @@
+#!/bin/sh
+# Fast gate: formatting and lint only. Anything slower belongs in pre-push,
+# where the cost is paid once per push instead of once per commit.
+set -e
+
+staged=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(ts|tsx|js|mjs|cjs|json|css|md)$' || true)
+[ -z "$staged" ] && exit 0
+
+echo "[pre-commit] prettier --check"
+echo "$staged" | tr '\n' '\0' | xargs -0 npx prettier --check --ignore-unknown
+
+echo "[pre-commit] oxlint"
+npx oxlint --quiet
+
+echo "[pre-commit] ok"

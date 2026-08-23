@@ -2,25 +2,15 @@
   "version": "0.0.1",
   "configurations": [
     {
-      "name": "aula-dev",
+      "name": "aula-desktop",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev",
-        "--prefix",
-        "desktop"
-      ],
+      "runtimeArgs": ["run", "dev"],
       "port": 5173
     },
     {
       "name": "aula-web",
       "runtimeExecutable": "npm",
-      "runtimeArgs": [
-        "run",
-        "dev:web",
-        "--prefix",
-        "desktop"
-      ],
+      "runtimeArgs": ["run", "dev:web"],
       "port": 5173
     }
   ]

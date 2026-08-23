@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "moduleDetection": "force",
+    "allowImportingTsExtensions": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+
+    /* Type safety. `strict` is the floor, not the ceiling — the flags below it
+       are the ones that actually surface latent crashes in this codebase. */
+    "strict": true,
+    "noImplicitOverride": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "useUnknownInCatchVariables": true,
+    "forceConsistentCasingInFileNames": true,
+
+    /* Dead code is a defect, not a warning. */
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+
+    /* Keep the emit erasable so the runtime never needs a TS-aware loader. */
+    "erasableSyntaxOnly": true
+  }
+}

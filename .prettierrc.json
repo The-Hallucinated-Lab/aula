@@ -1,0 +1,12 @@
+{
+  "semi": false,
+  "singleQuote": true,
+  "trailingComma": "all",
+  "printWidth": 100,
+  "arrowParens": "avoid",
+  "endOfLine": "lf",
+  "overrides": [
+    { "files": "*.md", "options": { "printWidth": 80, "proseWrap": "preserve" } },
+    { "files": "*.json", "options": { "printWidth": 120 } }
+  ]
+}

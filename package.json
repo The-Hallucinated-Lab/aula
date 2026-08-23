@@ -1,0 +1,48 @@
+{
+  "name": "aula-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Aula — a constraint-driven university timetable planner. Offline-first Electron desktop application.",
+  "license": "UNLICENSED",
+  "engines": {
+    "node": ">=22.12.0",
+    "npm": ">=10.9.0"
+  },
+  "workspaces": [
+    "packages/*",
+    "apps/*",
+    "tools/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev --workspace @aula/desktop",
+    "dev:web": "npm run dev:web --workspace @aula/desktop",
+    "build": "npm run build --workspace @aula/desktop",
+    "build:web": "npm run build:web --workspace @aula/desktop",
+    "package": "npm run package --workspace @aula/desktop",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "lint": "oxlint",
+    "lint:fix": "oxlint --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "verify": "npm run verify --workspace @aula/core",
+    "diagnose": "npm run diagnose --workspace @aula/core",
+    "audit:licenses": "node tools/scripts/audit-licenses.mjs",
+    "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run verify",
+    "prepare": "node tools/scripts/install-git-hooks.mjs"
+  },
+  "devDependencies": {
+    "oxlint": "1.79.0",
+    "prettier": "3.9.6",
+    "typescript": "7.0.2",
+    "vitest": "4.1.11",
+    "@vitest/coverage-v8": "4.1.11"
+  },
+  "allowScripts": {
+    "esbuild@0.28.2": true,
+    "electron-winstaller@5.4.0": true
+  }
+}

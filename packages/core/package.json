@@ -1,0 +1,23 @@
+{
+  "name": "@aula/core",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "license": "UNLICENSED",
+  "description": "Aula domain core — institution model, constraint catalogue and scheduling engine. Pure TypeScript: no React, no DOM, no Node built-ins.",
+  "sideEffects": false,
+  "exports": {
+    ".": "./src/index.ts",
+    "./data/*": "./src/data/*.ts",
+    "./engine/*": "./src/engine/*.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.scripts.json",
+    "verify": "esbuild scripts/harness.ts --bundle --platform=node --format=esm --outfile=../../node_modules/.tmp/harness.mjs --log-level=warning && node ../../node_modules/.tmp/harness.mjs",
+    "diagnose": "esbuild scripts/diagnose.ts --bundle --platform=node --format=esm --outfile=../../node_modules/.tmp/diagnose.mjs --log-level=warning && node ../../node_modules/.tmp/diagnose.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "26.2.0",
+    "esbuild": "0.28.2"
+  }
+}
