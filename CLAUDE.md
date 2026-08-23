@@ -48,8 +48,15 @@ apps/desktop/           @aula/desktop — the Electron application
 
 tools/orchestrator/     local-model delegation harness (§3) and session log
 tools/scripts/          workspace scripts (git hooks, licence audit)
-docs/                   CONTEXT.md, decisions.md, explanation.md, reviews
+tools/cli/              @aula/cli — scaffolding (`npm run new`)
+deploy/                 nginx, Kubernetes and systemd for the browser build
+docs/                   CONTEXT.md, decisions.md, audits, disaster recovery
+.github/workflows/      CI, release, AI review
 .githooks/              native Git hooks (`core.hooksPath`)
+
+Root documents: README.md, ARCHITECTURE.md, CONTRIBUTING.md,
+CODE_OF_CONDUCT.md, CHANGELOG.md (generated), THIRD-PARTY-NOTICES.md
+(generated).
 ```
 
 Three boundaries are load-bearing and must not be crossed:
@@ -73,18 +80,22 @@ main-process relay, because the packaged renderer's origin is `file://`.
 
 Every command runs from the repository root.
 
-| Command                  | What it does                                      |
-| ------------------------ | ------------------------------------------------- |
-| `npm run dev`            | Vite + Electron against the dev server            |
-| `npm run dev:web`        | renderer only, in a browser                       |
-| `npm run typecheck`      | both workspaces, both TS projects each            |
-| `npm run lint`           | oxlint over the whole tree                        |
-| `npm run format`         | Prettier, write                                   |
-| `npm run test`           | Vitest (`core` in Node, `desktop` in happy-dom)   |
-| `npm run verify`         | the headless harness — the number that counts     |
-| `npm run audit:licenses` | fails on strong copyleft in the shipped graph     |
-| `npm run check`          | all of the above, in the order the hooks run them |
-| `npm run package`        | electron-builder, NSIS + portable                 |
+| Command                        | What it does                                      |
+| ------------------------------ | ------------------------------------------------- |
+| `npm run dev`                  | Vite + Electron against the dev server            |
+| `npm run dev:web`              | renderer only, in a browser                       |
+| `npm run typecheck`            | both workspaces, both TS projects each            |
+| `npm run lint`                 | oxlint over the whole tree                        |
+| `npm run format`               | Prettier, write                                   |
+| `npm run test`                 | Vitest (`core` in Node, `desktop` in happy-dom)   |
+| `npm run verify`               | the headless harness — the number that counts     |
+| `npm run audit:licenses`       | fails on strong copyleft in the shipped graph     |
+| `npm run check`                | all of the above, in the order the hooks run them |
+| `npm run package`              | electron-builder, NSIS + portable                 |
+| `npm run new -- <what> <name>` | scaffold a page, rule, slice or component         |
+| `npm run i18n:report`          | how much of the interface is translatable         |
+| `npm run docker:up`            | the browser build in a container                  |
+| `npm run release:dry`          | what semantic-release would publish               |
 
 Commits must be Conventional Commits — `.githooks/commit-msg` rejects anything
 else, and the release pipeline derives the version and changelog from them.
