@@ -10,18 +10,23 @@
  */
 
 import { app, BrowserWindow, dialog, ipcMain, Menu, shell } from 'electron'
-import { readFile, writeFile, mkdir } from 'node:fs/promises'
+import { readFile, writeFile, mkdir, stat } from 'node:fs/promises'
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { loadDotEnv } from './config/dotenv'
 import { env, isDev } from './config/env'
+import { ChatRequest, OpenRequest, RequestId, SaveRequest, parsePayload } from './ipc/contracts'
+import { LIMITS, RateLimiter } from './ipc/rate-limit'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
 
 loadDotEnv()
 
 const DEV_SERVER = env.VITE_DEV_SERVER_URL
+
+/** Nothing Aula saves comes close; a larger file is not one of ours. */
+const MAX_PROJECT_BYTES = 64 * 1024 * 1024
 
 interface WindowState {
   width: number
@@ -110,9 +115,47 @@ function createWindow() {
       preload: join(__dirname, 'preload.cjs'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false,
+      nodeIntegrationInWorker: false,
+      nodeIntegrationInSubFrames: false,
+      /* The preload only calls `contextBridge` and `ipcRenderer`, both of which
+         a sandboxed preload still has. Nothing here needs `fs` or `path`, so
+         the renderer process runs inside the OS sandbox — the single largest
+         reduction in what a renderer compromise is worth. */
+      sandbox: true,
+      webSecurity: true,
+      allowRunningInsecureContent: false,
+      experimentalFeatures: false,
       spellcheck: false,
     },
+  })
+
+  /* Aula needs no device permission of any kind: no camera, no microphone, no
+     location, no notifications, no clipboard read. Denying the whole class is
+     both accurate and immune to a new permission being added to Chromium later
+     and silently defaulting to a prompt. */
+  const session = mainWindow.webContents.session
+  /* A *request* is the page asking for something and would raise a prompt, so
+     one arriving means something in the renderer is doing what it should not —
+     worth a line in the log. A *check* is Chromium querying current state
+     unprompted; it fires several times on every launch and logging it would be
+     noise that trains the reader to ignore the log. */
+  session.setPermissionRequestHandler((_contents, permission, callback) => {
+    console.warn(`[Aula] denied permission request: ${permission}`)
+    callback(false)
+  })
+  session.setPermissionCheckHandler(() => false)
+  /* Defence in depth for the development server, whose responses do carry
+     headers. The production policy travels in the document because `file://`
+     has none; this makes the dev surface match. */
+  session.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'X-Content-Type-Options': ['nosniff'],
+        'X-Frame-Options': ['DENY'],
+        'Referrer-Policy': ['no-referrer'],
+      },
+    })
   })
 
   if (state.maximized) mainWindow.maximize()
@@ -216,7 +259,8 @@ function buildMenu() {
         {
           label: 'About Aula',
           click: () => {
-            void dialog.showMessageBox(mainWindow!, {
+            if (!mainWindow) return
+            void dialog.showMessageBox(mainWindow, {
               type: 'info',
               title: 'About Aula',
               message: 'Aula — Timetable Studio',
@@ -234,45 +278,90 @@ function buildMenu() {
 }
 
 /* ------------------------------------------------------------------ *
- * IPC — the only two privileged operations
+ * IPC — the only privileged operations
+ *
+ * Every handler below does the same three things before it does any work:
+ * confirm the call came from this window, check the channel's rate limit, and
+ * parse the payload against its schema. A TypeScript interface on the handler
+ * parameter describes a value that arrived over a serialisation boundary and
+ * enforces nothing at runtime.
  * ------------------------------------------------------------------ */
 
-interface SavePayload {
-  suggestedName: string
-  data: string
-  filters: { name: string; extensions: string[] }[]
+const limiter = new RateLimiter()
+
+/**
+ * Reject anything that did not come from the application's own window.
+ *
+ * Without this, any frame the renderer ends up hosting can invoke a privileged
+ * channel. Aula never opens one, which is exactly why the check is cheap to
+ * keep correct.
+ */
+function fromMainWindow(event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent): boolean {
+  return mainWindow !== null && event.sender === mainWindow.webContents
 }
 
-ipcMain.handle('file:save', async (_event, payload: SavePayload) => {
+function guard(
+  event: Electron.IpcMainInvokeEvent | Electron.IpcMainEvent,
+  channel: string,
+): string | null {
+  if (!fromMainWindow(event)) return 'Request did not come from the Aula window'
+  const limit = LIMITS[channel]
+  return limit ? limiter.check(channel, limit) : null
+}
+
+ipcMain.handle('file:save', async (event, payload: unknown) => {
+  const blocked = guard(event, 'file:save')
+  if (blocked) return { ok: false, error: blocked }
   if (!mainWindow) return { ok: false, error: 'No window' }
+
+  const parsed = parsePayload(SaveRequest, payload, 'save request')
+  if (!parsed.ok) return parsed
+
+  const { suggestedName, data, filters } = parsed.value
   try {
     const result = await dialog.showSaveDialog(mainWindow, {
       title: 'Save',
-      defaultPath: join(app.getPath('documents'), payload.suggestedName),
-      filters: payload.filters,
+      defaultPath: join(app.getPath('documents'), suggestedName),
+      filters,
       properties: ['createDirectory', 'showOverwriteConfirmation'],
     })
     if (result.canceled || !result.filePath) return { ok: false, canceled: true }
 
     await mkdir(dirname(result.filePath), { recursive: true })
-    await writeFile(result.filePath, payload.data, 'utf-8')
+    await writeFile(result.filePath, data, 'utf-8')
     return { ok: true, path: result.filePath }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
 })
 
-ipcMain.handle('file:open', async (_event, filters: { name: string; extensions: string[] }[]) => {
+ipcMain.handle('file:open', async (event, payload: unknown) => {
+  const blocked = guard(event, 'file:open')
+  if (blocked) return { ok: false, error: blocked }
   if (!mainWindow) return { ok: false, error: 'No window' }
+
+  const parsed = parsePayload(OpenRequest, payload, 'open request')
+  if (!parsed.ok) return parsed
+
   try {
     const result = await dialog.showOpenDialog(mainWindow, {
       title: 'Open',
-      filters,
+      filters: parsed.value,
       properties: ['openFile'],
     })
     const path = result.filePaths[0]
     if (result.canceled || path === undefined) return { ok: false, canceled: true }
     if (!existsSync(path)) return { ok: false, error: 'That file no longer exists' }
+
+    /* Cap what a single read can pull into memory. The renderer is about to be
+       handed this whole string, and an accidental pick of a multi-gigabyte file
+       should be a message, not an out-of-memory crash. */
+    const info = await stat(path)
+    if (info.size > MAX_PROJECT_BYTES) {
+      const mb = Math.round(MAX_PROJECT_BYTES / (1024 * 1024))
+      return { ok: false, error: `That file is larger than ${mb} MB — it is not an Aula project.` }
+    }
+
     const data = await readFile(path, 'utf-8')
     return { ok: true, data, path }
   } catch (error) {
@@ -292,7 +381,12 @@ ipcMain.handle('file:open', async (_event, filters: { name: string; extensions: 
 
 const OLLAMA = env.AULA_ASSISTANT_BASE_URL
 
-ipcMain.handle('assistant:probe', async () => {
+ipcMain.handle('assistant:probe', async event => {
+  const blocked = guard(event, 'assistant:probe')
+  if (blocked) return { ok: false, models: [], error: blocked }
+  if (env.AULA_ASSISTANT_DISABLED) {
+    return { ok: false, models: [], error: 'The assistant is disabled by configuration.' }
+  }
   try {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), env.AULA_ASSISTANT_TIMEOUT_MS)
@@ -310,30 +404,72 @@ ipcMain.handle('assistant:probe', async () => {
   }
 })
 
-interface ChatPayload {
-  requestId: number
-  model: string
-  messages: { role: string; content: string }[]
-}
-
 const chatAborts = new Map<number, AbortController>()
 
-ipcMain.on('assistant:cancel', (_event, requestId: number) => {
-  chatAborts.get(requestId)?.abort()
-  chatAborts.delete(requestId)
+/**
+ * One conversation at a time.
+ *
+ * The interface only ever has one in flight, so an unbounded map is not
+ * capacity, it is a place for abandoned AbortControllers to accumulate if the
+ * renderer stops sending `assistant:cancel`.
+ */
+const MAX_CONCURRENT_CHATS = 4
+
+/**
+ * Ceiling on a single streamed answer.
+ *
+ * The reply is accumulated in the renderer as it arrives. A local model that
+ * fails to emit a stop token would otherwise stream until the window runs out
+ * of memory; 512 kB is far past any answer this assistant should give.
+ */
+const MAX_ANSWER_BYTES = 512 * 1024
+
+ipcMain.on('assistant:cancel', (event, payload: unknown) => {
+  if (!fromMainWindow(event)) return
+  const parsed = RequestId.safeParse(payload)
+  if (!parsed.success) return
+  chatAborts.get(parsed.data)?.abort()
+  chatAborts.delete(parsed.data)
 })
 
-ipcMain.on('assistant:chat', async (event, payload: ChatPayload) => {
-  const { requestId, model, messages } = payload
-  const controller = new AbortController()
-  chatAborts.set(requestId, controller)
-
+ipcMain.on('assistant:chat', async (event, payload: unknown) => {
   // Named `reply`, not `send`: the module-level `send` broadcasts menu actions
   // to the window, and shadowing it here made two very different channels look
   // like the same call.
   const reply = (channel: string, data: unknown) => {
     if (!event.sender.isDestroyed()) event.sender.send(channel, data)
   }
+
+  const blocked = guard(event, 'assistant:chat')
+  if (blocked) {
+    reply('assistant:error', { requestId: -1, message: blocked })
+    return
+  }
+  if (env.AULA_ASSISTANT_DISABLED) {
+    reply('assistant:error', {
+      requestId: -1,
+      message: 'The assistant is disabled by configuration.',
+    })
+    return
+  }
+
+  const parsed = parsePayload(ChatRequest, payload, 'assistant request')
+  if (!parsed.ok) {
+    reply('assistant:error', { requestId: -1, message: parsed.error })
+    return
+  }
+
+  const { requestId, model, messages } = parsed.value
+  if (chatAborts.size >= MAX_CONCURRENT_CHATS) {
+    reply('assistant:error', {
+      requestId,
+      message: 'Too many assistant requests are already running.',
+    })
+    return
+  }
+
+  const controller = new AbortController()
+  chatAborts.set(requestId, controller)
 
   try {
     const res = await fetch(`${OLLAMA}/api/chat`, {
@@ -360,6 +496,7 @@ ipcMain.on('assistant:chat', async (event, payload: ChatPayload) => {
     const reader = res.body.getReader()
     const decoder = new TextDecoder()
     let buffer = ''
+    let streamed = 0
 
     for (;;) {
       const { done, value } = await reader.read()
@@ -373,7 +510,17 @@ ipcMain.on('assistant:chat', async (event, payload: ChatPayload) => {
         try {
           const chunk = JSON.parse(trimmed) as { message?: { content?: string } }
           const piece = chunk.message?.content
-          if (piece) reply('assistant:chunk', { requestId, text: piece })
+          if (!piece) continue
+          streamed += piece.length
+          if (streamed > MAX_ANSWER_BYTES) {
+            controller.abort()
+            reply('assistant:error', {
+              requestId,
+              message: 'The model kept generating past a reasonable answer length and was stopped.',
+            })
+            return
+          }
+          reply('assistant:chunk', { requestId, text: piece })
         } catch {
           // partial line; it completes on the next read
         }

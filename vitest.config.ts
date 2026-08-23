@@ -26,12 +26,23 @@ export default defineConfig({
           include: ['src/**/*.test.{ts,tsx}', 'tests/**/*.test.{ts,tsx}'],
         },
       },
+      {
+        // The main process is Node, not a document. Keeping it a separate
+        // project means a test here cannot accidentally lean on a DOM the real
+        // runtime does not have.
+        test: {
+          name: 'electron',
+          root: 'apps/desktop',
+          environment: 'node',
+          include: ['electron/**/*.test.ts'],
+        },
+      },
     ],
     coverage: {
       provider: 'v8',
       reportsDirectory: 'coverage',
       reporter: ['text-summary', 'json-summary', 'html'],
-      include: ['packages/core/src/**', 'apps/desktop/src/**'],
+      include: ['packages/core/src/**', 'apps/desktop/src/**', 'apps/desktop/electron/**'],
       exclude: ['**/*.test.*', '**/*.d.ts'],
     },
   },

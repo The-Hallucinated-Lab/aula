@@ -1,0 +1,42 @@
+/* ============================================================
+   Typefaces — self-hosted.
+
+   These were previously pulled from fonts.googleapis.com by a
+   <link> in index.html. Three things were wrong with that:
+
+     1. It contradicted the application's own promise. The About
+        box says "no data leaves this machine"; the renderer was
+        announcing every launch to a third party, with the user's
+        IP address and user agent, before a single pixel drew.
+     2. It does not work offline. Aula is a desktop application
+        for a timetable office, and a packaged build with no
+        internet fell back to Segoe UI with no warning.
+     3. It cannot coexist with a strict Content-Security-Policy.
+        Allowing fonts.googleapis.com in `style-src` means
+        allowing a remote stylesheet, which is the one thing the
+        policy exists to prevent.
+
+   @fontsource ships the same faces as npm packages under
+   OFL-1.1. Vite fingerprints the .woff2 files into dist/assets,
+   so they load from the app's own origin and are versioned with
+   the build.
+
+   Only the weights the design actually uses are imported, and
+   only the Latin subset: pulling all seven weights across every
+   subset would add roughly 400 kB to the installer for glyphs
+   this interface never renders.
+   ============================================================ */
+
+/* Manrope — UI text. 300/400/500/600/700/800 are all used by
+   global.css; 200 is not. */
+@import '@fontsource/manrope/latin-300.css';
+@import '@fontsource/manrope/latin-400.css';
+@import '@fontsource/manrope/latin-500.css';
+@import '@fontsource/manrope/latin-600.css';
+@import '@fontsource/manrope/latin-700.css';
+@import '@fontsource/manrope/latin-800.css';
+
+/* JetBrains Mono — codes, times and figures. */
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-500.css';
+@import '@fontsource/jetbrains-mono/latin-600.css';

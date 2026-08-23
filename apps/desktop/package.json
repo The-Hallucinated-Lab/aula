@@ -4,7 +4,7 @@
   "private": true,
   "version": "1.0.0",
   "license": "UNLICENSED",
-  "description": "Aula — a constraint-driven university timetable planner for Windows",
+  "description": "Aula \u2014 a constraint-driven university timetable planner for Windows",
   "type": "module",
   "main": "dist-electron/main.js",
   "scripts": {
@@ -14,11 +14,13 @@
     "build": "npm run typecheck && vite build",
     "build:web": "npm run typecheck && vite build --mode web",
     "preview": "vite preview",
-    "package": "npm run build && electron-builder --win --publish never",
-    "package:dir": "npm run build && electron-builder --win --dir --publish never"
+    "package": "npm run build && npm run audit:licenses --workspace-root && electron-builder --win --publish never",
+    "package:dir": "npm run build && npm run audit:licenses --workspace-root && electron-builder --win --dir --publish never"
   },
   "dependencies": {
     "@aula/core": "*",
+    "@fontsource/jetbrains-mono": "5.3.0",
+    "@fontsource/manrope": "5.3.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-router-dom": "7.18.2",
@@ -32,6 +34,7 @@
     "@vitejs/plugin-react": "6.1.0",
     "electron": "43.4.1",
     "electron-builder": "26.15.3",
+    "happy-dom": "^20.11.6",
     "vite": "8.2.2",
     "vite-plugin-electron": "1.1.1"
   },
@@ -74,6 +77,12 @@
     },
     "portable": {
       "artifactName": "Aula-Portable-${version}-${arch}.${ext}"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "../../THIRD-PARTY-NOTICES.md",
+        "to": "THIRD-PARTY-NOTICES.md"
+      }
+    ]
   }
 }
