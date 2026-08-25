@@ -50,13 +50,14 @@ npm run new -- page Reports --dry-run    # see the plan first
 
 ## The gates, and why each exists
 
-| Gate           | Why                                                                                                                                           |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `format:check` | Prettier. Not taste — a formatting argument in review is time not spent on the change.                                                        |
-| `lint`         | oxlint, seven plugins. Rules are at `error` or documented as off in `docs/lint-promotion-ladder.md`. Nothing sits at `warn` without an owner. |
-| `typecheck`    | Four projects, full strict including `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`.                                             |
-| `test`         | 210 Vitest cases across four projects.                                                                                                        |
-| **`verify`**   | **159 headless checks that re-derive every hard invariant.** This is the one that counts.                                                     |
+| Gate            | Why                                                                                                                                                                                                           |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `format:check`  | Prettier. Not taste — a formatting argument in review is time not spent on the change.                                                                                                                        |
+| `lint`          | oxlint, seven plugins. Rules are at `error` or documented as off in `docs/lint-promotion-ladder.md`. Nothing sits at `warn` without an owner.                                                                 |
+| `typecheck`     | Four projects, full strict including `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`.                                                                                                             |
+| `test`          | 210 Vitest cases across four projects.                                                                                                                                                                        |
+| **`verify`**    | **159 headless checks that re-derive every hard invariant.** This is the one that counts.                                                                                                                     |
+| `release:check` | Renders release notes from a synthetic commit of every type. `semantic-release --dry-run` stops before this step on a non-release branch, so a broken changelog preset otherwise only surfaces after a merge. |
 
 Hooks run a subset: `pre-commit` does format and lint (fast), `pre-push` does
 typecheck, test and verify. `--no-verify` exists; CI does not have it.

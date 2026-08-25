@@ -96,6 +96,7 @@ Every command runs from the repository root.
 | `npm run i18n:report`          | how much of the interface is translatable         |
 | `npm run docker:up`            | the browser build in a container                  |
 | `npm run release:dry`          | what semantic-release would publish               |
+| `npm run release:check`        | proves the release notes actually render          |
 
 Commits must be Conventional Commits — `.githooks/commit-msg` rejects anything
 else, and the release pipeline derives the version and changelog from them.

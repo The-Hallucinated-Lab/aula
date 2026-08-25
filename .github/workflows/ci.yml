@@ -112,12 +112,42 @@ jobs:
             THIRD-PARTY-NOTICES.md
           retention-days: 30
 
+  # Which pull requests touch packaging at all?
+  #
+  # The installer job used to be main-only, so the pull request that broke it
+  # was green and the merge was not. Running it on every pull request is a real
+  # cost — electron-builder pulls ~200 MB — so it runs when the packaging
+  # surface actually changes, and always on main.
+  scope:
+    name: Scope
+    runs-on: ubuntu-latest
+    outputs:
+      packaging: ${{ steps.changed.outputs.packaging }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: changed
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "packaging=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          files=$(git diff --name-only "$BASE" "$HEAD")
+          if echo "$files" | grep -qE '^(package\.json|package-lock\.json|apps/desktop/package\.json|apps/desktop/electron/|tools/scripts/audit-licenses\.mjs|\.github/workflows/ci\.yml)'; then
+            echo "packaging=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "packaging=false" >> "$GITHUB_OUTPUT"
+          fi
+          echo "changed files:"; echo "$files"
+
   package:
     name: Windows installer
-    # Only on main: electron-builder pulls ~200 MB of Electron and takes far
-    # longer than the gate, which is not a reasonable tax on every pull request.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    needs: [gate, licences]
+    if: needs.scope.outputs.packaging == 'true'
+    needs: [gate, licences, scope]
     runs-on: windows-latest
     timeout-minutes: 30
     steps:
