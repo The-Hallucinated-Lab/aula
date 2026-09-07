@@ -46,13 +46,13 @@
     "@semantic-release/changelog": "7.0.0",
     "@semantic-release/exec": "7.1.0",
     "@semantic-release/git": "11.0.1",
-    "@vitest/coverage-v8": "4.1.11",
+    "@vitest/coverage-v8": "5.0.0",
     "conventional-changelog-conventionalcommits": "9.3.1",
     "oxlint": "1.79.0",
     "prettier": "3.9.6",
     "semantic-release": "25.0.9",
     "typescript": "7.0.2",
-    "vitest": "4.1.11"
+    "vitest": "5.0.0"
   },
   "allowScripts": {
     "esbuild@0.28.2": true,
