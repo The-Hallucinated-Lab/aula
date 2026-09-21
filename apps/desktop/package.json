@@ -33,12 +33,12 @@
     "@types/node": "26.2.0",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
-    "@vitejs/plugin-react": "6.1.0",
+    "@vitejs/plugin-react": "6.1.1",
     "axe-core": "^4.13.0",
     "electron": "43.4.1",
     "electron-builder": "26.15.3",
     "happy-dom": "^20.11.6",
-    "vite": "8.2.2",
+    "vite": "8.3.0",
     "vite-plugin-electron": "1.1.1"
   },
   "build": {
